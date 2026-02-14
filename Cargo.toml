@@ -5,6 +5,12 @@ edition = "2024"
 
 [dependencies]
 criterion = "0.8.2"
+rayon = { version = "1.11.0", optional = true }
+
+
+[features]
+default = ["rayon"]
+rayon = ["dep:rayon"]
 
 [[bench]]
 name = "bvh_2d"

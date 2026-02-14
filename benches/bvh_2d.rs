@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use jaali::{mesh::TriMesh, Bvh2D};
+use jaali::{mesh::TriMesh, Backend, Locator2D};
 
 fn generate_grid_mesh_2d(
     nx: usize,
@@ -32,6 +32,7 @@ fn generate_grid_mesh_2d(
             t0.push(v00);
             t1.push(v10);
             t2.push(v11);
+
             t0.push(v00);
             t1.push(v11);
             t2.push(v01);
@@ -41,7 +42,7 @@ fn generate_grid_mesh_2d(
     (vx, vy, t0, t1, t2)
 }
 
-fn bench_bvh_2d_small_mesh(c: &mut Criterion) {
+fn bench_locator_2d_small_mesh(c: &mut Criterion) {
     let vx = vec![0.0, 1.0, 1.0, 0.0];
     let vy = vec![0.0, 0.0, 1.0, 1.0];
     let t0 = vec![0usize, 0];
@@ -55,22 +56,30 @@ fn bench_bvh_2d_small_mesh(c: &mut Criterion) {
         t1: &t1,
         t2: &t2,
     };
-    let bvh = Bvh2D::build(&mesh);
 
-    let queries: Vec<(f64, f64)> = (0..100_000)
-        .map(|i| ((i % 100) as f64 * 0.01 + 0.3, 0.3))
+    let qx: Vec<f64> = (0..100_000)
+        .map(|i| (i % 100) as f64 * 0.01 + 0.3)
         .collect();
+    let qy: Vec<f64> = vec![0.3; qx.len()];
 
-    c.bench_function("bvh_2d_small_mesh", |b| {
-        b.iter(|| {
-            for &(x, y) in &queries {
-                std::hint::black_box(bvh.find(x, y, &mesh));
-            }
-        })
-    });
+    let backends = [Backend::Serial, Backend::ParallelCpu];
+
+    for backend in backends {
+        let locator = Locator2D::new(&mesh).with_backend(backend);
+        let mut out = vec![-1; qx.len()];
+
+        let name = format!("locator_2d_small_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate(&qx, &qy, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+    }
 }
 
-fn bench_bvh_2d_large_mesh(c: &mut Criterion) {
+fn bench_locator_2d_large_mesh(c: &mut Criterion) {
     // ~180k triangles
     let (vx, vy, t0, t1, t2) = generate_grid_mesh_2d(300, 300);
 
@@ -81,20 +90,32 @@ fn bench_bvh_2d_large_mesh(c: &mut Criterion) {
         t1: &t1,
         t2: &t2,
     };
-    let bvh = Bvh2D::build(&mesh);
 
-    let queries: Vec<(f64, f64)> = (0..100_000)
-        .map(|i| ((i % 300) as f64 + 0.3, ((i / 300) % 300) as f64 + 0.3))
+    let qx: Vec<f64> = (0..100_000).map(|i| (i % 300) as f64 + 0.3).collect();
+    let qy: Vec<f64> = (0..100_000)
+        .map(|i| ((i / 300) % 300) as f64 + 0.3)
         .collect();
 
-    c.bench_function("bvh_2d_large_mesh", |b| {
-        b.iter(|| {
-            for &(x, y) in &queries {
-                std::hint::black_box(bvh.find(x, y, &mesh));
-            }
-        })
-    });
+    let backends = [Backend::Serial, Backend::ParallelCpu];
+
+    for backend in backends {
+        let locator = Locator2D::new(&mesh).with_backend(backend);
+        let mut out = vec![-1; qx.len()];
+
+        let name = format!("locator_2d_large_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate(&qx, &qy, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+    }
 }
 
-criterion_group!(benches, bench_bvh_2d_small_mesh, bench_bvh_2d_large_mesh);
+criterion_group!(
+    benches,
+    bench_locator_2d_small_mesh,
+    bench_locator_2d_large_mesh
+);
 criterion_main!(benches);

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use jaali::{mesh::TetMesh, Bvh3D};
+use jaali::{mesh::TetMesh, Backend, Locator3D};
 
 fn generate_grid_mesh_3d(
     nx: usize,
@@ -43,6 +43,7 @@ fn generate_grid_mesh_3d(
                 let v010 = idx(i, j + 1, k);
                 let v001 = idx(i, j, k + 1);
 
+                // simple tetra per cell (sufficient for benchmarking)
                 t0.push(v000);
                 t1.push(v100);
                 t2.push(v010);
@@ -54,7 +55,7 @@ fn generate_grid_mesh_3d(
     (vx, vy, vz, t0, t1, t2, t3)
 }
 
-fn bench_bvh_3d_small_mesh(c: &mut Criterion) {
+fn bench_locator_3d_small_mesh(c: &mut Criterion) {
     // single tetrahedron
     let vx = vec![0.0, 1.0, 0.0, 0.0];
     let vy = vec![0.0, 0.0, 1.0, 0.0];
@@ -75,22 +76,28 @@ fn bench_bvh_3d_small_mesh(c: &mut Criterion) {
         t3: &t3,
     };
 
-    let bvh = Bvh3D::build(&mesh);
+    let qx = vec![0.25; 100_000];
+    let qy = vec![0.25; 100_000];
+    let qz: Vec<f64> = (0..100_000).map(|i| (i % 100) as f64 * 0.01).collect();
 
-    let queries: Vec<(f64, f64, f64)> = (0..100_000)
-        .map(|i| (0.25, 0.25, (i % 100) as f64 * 0.01))
-        .collect();
+    let backends = [Backend::Serial, Backend::ParallelCpu];
 
-    c.bench_function("bvh_3d_small_mesh", |b| {
-        b.iter(|| {
-            for &(x, y, z) in &queries {
-                std::hint::black_box(bvh.find(x, y, z, &mesh));
-            }
-        })
-    });
+    for backend in backends {
+        let locator = Locator3D::new(&mesh).with_backend(backend);
+        let mut out = vec![-1; qx.len()];
+
+        let name = format!("locator_3d_small_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate(&qx, &qy, &qz, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+    }
 }
 
-fn bench_bvh_3d_large_mesh(c: &mut Criterion) {
+fn bench_locator_3d_large_mesh(c: &mut Criterion) {
     // ~125k tetrahedra
     let (vx, vy, vz, t0, t1, t2, t3) = generate_grid_mesh_3d(50, 50, 50);
 
@@ -103,20 +110,31 @@ fn bench_bvh_3d_large_mesh(c: &mut Criterion) {
         t2: &t2,
         t3: &t3,
     };
-    let bvh = Bvh3D::build(&mesh);
 
-    let queries: Vec<(f64, f64, f64)> = (0..100_000)
-        .map(|i| (25.3, 25.3, (i % 50) as f64 + 0.2))
-        .collect();
+    let qx = vec![25.3; 100_000];
+    let qy = vec![25.3; 100_000];
+    let qz: Vec<f64> = (0..100_000).map(|i| (i % 50) as f64 + 0.2).collect();
 
-    c.bench_function("bvh_3d_large_mesh", |b| {
-        b.iter(|| {
-            for &(x, y, z) in &queries {
-                std::hint::black_box(bvh.find(x, y, z, &mesh));
-            }
-        })
-    });
+    let backends = [Backend::Serial, Backend::ParallelCpu];
+
+    for backend in backends {
+        let locator = Locator3D::new(&mesh).with_backend(backend);
+        let mut out = vec![-1; qx.len()];
+
+        let name = format!("locator_3d_large_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate(&qx, &qy, &qz, &mut out);
+                std::hint::black_box(&out);
+            })
+        });
+    }
 }
 
-criterion_group!(benches, bench_bvh_3d_small_mesh, bench_bvh_3d_large_mesh);
+criterion_group!(
+    benches,
+    bench_locator_3d_small_mesh,
+    bench_locator_3d_large_mesh
+);
 criterion_main!(benches);

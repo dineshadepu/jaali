@@ -1,5 +1,4 @@
 use super::*;
-// use crate::mesh::TriMesh;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -115,9 +114,6 @@ fn brute_force_find(px: f64, py: f64, mesh: &TriMesh) -> i32 {
 
 #[test]
 fn bvh_matches_bruteforce_random_points() {
-    use crate::bvh::Bvh2D;
-    use crate::mesh::TriMesh;
-
     // Simple square split into two triangles
     let vx = vec![0.0, 1.0, 1.0, 0.0];
     let vy = vec![0.0, 0.0, 1.0, 1.0];

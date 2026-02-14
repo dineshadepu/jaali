@@ -11,6 +11,7 @@
 
 pub mod bvh;
 pub mod geometry;
+pub mod locator;
 pub mod mesh;
 
 #[cfg(test)]
@@ -18,4 +19,5 @@ mod test_bvh_2d;
 mod test_bvh_3d;
 
 pub use crate::bvh::{Bvh2D, Bvh3D};
+pub use crate::locator::{Backend, Locator2D, Locator3D};
 pub use crate::mesh::{TetMesh, TriMesh};
