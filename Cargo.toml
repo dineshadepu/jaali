@@ -1,0 +1,15 @@
+[package]
+name = "jaali"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "bvh_2d"
+harness = false
+
+[[bench]]
+name = "bvh_3d"
+harness = false
