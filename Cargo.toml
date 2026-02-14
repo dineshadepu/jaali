@@ -3,14 +3,21 @@ name = "jaali"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+
 [dependencies]
 criterion = "0.8.2"
 rayon = { version = "1.11.0", optional = true }
+pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
+numpy = "0.28"
 
 
 [features]
 default = ["rayon"]
 rayon = ["dep:rayon"]
+python = ["pyo3"]
 
 [[bench]]
 name = "bvh_2d"
