@@ -1,4 +1,5 @@
 use crate::geometry::{point_in_tet, point_in_triangle};
+use crate::geometry::{point_in_tet_strict, point_in_triangle_strict};
 use crate::mesh::{TetMesh, TriMesh};
 
 #[inline(always)]
@@ -111,7 +112,7 @@ impl Bvh2D {
             let tri = self.tri[n];
             if tri >= 0 {
                 let i = tri as usize;
-                if point_in_triangle(
+                if point_in_triangle_strict(
                     px,
                     py,
                     mesh.vx[mesh.t0[i]],
@@ -284,7 +285,7 @@ impl Bvh3D {
             let tid = self.tet[n];
             if tid >= 0 {
                 let i = tid as usize;
-                if point_in_tet(
+                if point_in_tet_strict(
                     px,
                     py,
                     pz,

@@ -194,13 +194,16 @@ fn tet_boundary_cases() {
     let bvh = Bvh3D::build(&mesh);
 
     // Vertex
-    assert_eq!(bvh.find(0.0, 0.0, 0.0, &mesh), 0);
+    assert_eq!(bvh.find(0.0, 0.0, 0.0, &mesh), -1);
 
     // Face center
-    assert_eq!(bvh.find(0.33, 0.33, 0.0, &mesh), 0);
+    assert_eq!(bvh.find(0.33, 0.33, 0.0, &mesh), -1);
 
     // Edge midpoint
-    assert_eq!(bvh.find(0.5, 0.0, 0.0, &mesh), 0);
+    assert_eq!(bvh.find(0.5, 0.0, 0.0, &mesh), -1);
+
+    // strictly inside
+    assert_eq!(bvh.find(0.2, 0.2, 0.2, &mesh), 0);
 }
 
 #[test]

@@ -166,15 +166,15 @@ fn bvh_boundary_cases() {
     };
     let bvh = Bvh2D::build(&mesh);
 
-    // vertices
-    assert_eq!(bvh.find(0.0, 0.0, &mesh), 0);
-    assert_eq!(bvh.find(1.0, 0.0, &mesh), 0);
+    // vertices → outside in StrictInside
+    assert_eq!(bvh.find(0.0, 0.0, &mesh), -1);
+    assert_eq!(bvh.find(1.0, 0.0, &mesh), -1);
 
-    // edge midpoint
-    assert_eq!(bvh.find(0.5, 0.0, &mesh), 0);
+    // edge midpoint → outside
+    assert_eq!(bvh.find(0.5, 0.0, &mesh), -1);
 
-    // outside
-    assert_eq!(bvh.find(-0.1, 0.1, &mesh), -1);
+    // strictly inside
+    assert_eq!(bvh.find(0.25, 0.25, &mesh), 0);
 }
 
 fn vtk_available(path: &str) -> bool {
