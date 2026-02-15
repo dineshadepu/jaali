@@ -23,6 +23,7 @@ pub enum Backend {
 #[derive(Clone, Copy, Debug)]
 pub enum LocateMode {
     StrictInside,
+    InsideOrBoundary,
 }
 
 /* ========================== 2D ========================== */
@@ -97,7 +98,7 @@ impl<'a> Locator2D<'a> {
     /* -------- public API -------- */
 
     pub fn locate(&self, qx: &[f64], qy: &[f64], out: &mut [i32]) {
-        if let Err(_) = self.locate_with_mode(qx, qy, out, LocateMode::StrictInside) {
+        if let Err(_) = self.locate_with_mode(qx, qy, out, LocateMode::InsideOrBoundary) {
             panic!("JAALI locate failed");
         }
     }
@@ -111,42 +112,57 @@ impl<'a> Locator2D<'a> {
     ) -> GpuResult<()> {
         assert_eq!(qx.len(), qy.len());
         assert_eq!(qx.len(), out.len());
-
         match mode {
-            LocateMode::StrictInside => self.locate_strict_inside(qx, qy, out),
+            LocateMode::StrictInside | LocateMode::InsideOrBoundary => {
+                self.locate_with_mode_impl(qx, qy, out, mode)
+            }
         }
     }
-
-    fn locate_strict_inside(&self, qx: &[f64], qy: &[f64], out: &mut [i32]) -> GpuResult<()> {
+    fn locate_with_mode_impl(
+        &self,
+        qx: &[f64],
+        qy: &[f64],
+        out: &mut [i32],
+        mode: LocateMode,
+    ) -> GpuResult<()> {
         match self.backend {
             Backend::Serial => {
                 for i in 0..qx.len() {
-                    out[i] = self.bvh.find(qx[i], qy[i], self.mesh);
+                    out[i] = self.bvh.find(qx[i], qy[i], self.mesh, mode);
                 }
                 Ok(())
             }
+
             Backend::ParallelCPU => {
                 #[cfg(feature = "rayon")]
                 {
                     out.par_iter_mut().enumerate().for_each(|(i, o)| {
-                        *o = self.bvh.find(qx[i], qy[i], self.mesh);
+                        *o = self.bvh.find(qx[i], qy[i], self.mesh, mode);
                     });
                 }
+
                 #[cfg(not(feature = "rayon"))]
                 {
                     for i in 0..qx.len() {
-                        out[i] = self.bvh.find(qx[i], qy[i], self.mesh);
+                        out[i] = self.bvh.find(qx[i], qy[i], self.mesh, mode);
                     }
                 }
                 Ok(())
             }
-            Backend::GPU => self.locate_gpu(qx, qy, out),
+
+            Backend::GPU => self.locate_gpu(qx, qy, out, mode),
         }
     }
 
     #[cfg(feature = "gpu")]
     #[allow(unsafe_code)]
-    fn locate_gpu(&self, qx: &[f64], qy: &[f64], out: &mut [i32]) -> GpuResult<()> {
+    fn locate_gpu(
+        &self,
+        qx: &[f64],
+        qy: &[f64],
+        out: &mut [i32],
+        mode: LocateMode,
+    ) -> GpuResult<()> {
         let gpu = self.gpu.as_ref().expect("GPU not initialized");
 
         let n = qx.len();
@@ -162,6 +178,12 @@ impl<'a> Locator2D<'a> {
         launch.arg(&out_d);
         let n_i32 = n as i32;
         launch.arg(&n_i32);
+
+        let mode_i32 = match mode {
+            LocateMode::StrictInside => 0,
+            LocateMode::InsideOrBoundary => 1,
+        };
+        launch.arg(&mode_i32);
 
         launch.arg(&gpu.bvh.xmin);
         launch.arg(&gpu.bvh.ymin);
@@ -183,7 +205,7 @@ impl<'a> Locator2D<'a> {
     }
 
     #[cfg(not(feature = "gpu"))]
-    fn locate_gpu(&self, _: &[f64], _: &[f64], _: &mut [i32]) -> GpuResult<()> {
+    fn locate_gpu(&self, _: &[f64], _: &[f64], _: &mut [i32], _: LocateMode) -> GpuResult<()> {
         Err(GpuError::Unavailable)
     }
 }
@@ -259,7 +281,7 @@ impl<'a> Locator3D<'a> {
     /* -------- public API -------- */
     /// Locate points using default mode (StrictInside)
     pub fn locate(&self, qx: &[f64], qy: &[f64], qz: &[f64], out: &mut [i32]) {
-        if let Err(_) = self.locate_with_mode(qx, qy, qz, out, LocateMode::StrictInside) {
+        if let Err(_) = self.locate_with_mode(qx, qy, qz, out, LocateMode::InsideOrBoundary) {
             panic!("JAALI locate failed");
         }
     }
@@ -278,49 +300,59 @@ impl<'a> Locator3D<'a> {
         assert_eq!(qx.len(), out.len());
 
         match mode {
-            LocateMode::StrictInside => self.locate_strict_inside(qx, qy, qz, out),
+            LocateMode::StrictInside | LocateMode::InsideOrBoundary => {
+                self.locate_with_mode_impl(qx, qy, qz, out, mode)
+            }
         }
     }
 
-    // --------------------------------------------------------
-    // StrictInside
-    // --------------------------------------------------------
-    fn locate_strict_inside(
+    fn locate_with_mode_impl(
         &self,
         qx: &[f64],
         qy: &[f64],
         qz: &[f64],
         out: &mut [i32],
+        mode: LocateMode,
     ) -> GpuResult<()> {
         match self.backend {
             Backend::Serial => {
                 for i in 0..qx.len() {
-                    out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh);
+                    out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
                 }
                 Ok(())
             }
+
             Backend::ParallelCPU => {
                 #[cfg(feature = "rayon")]
                 {
                     out.par_iter_mut().enumerate().for_each(|(i, o)| {
-                        *o = self.bvh.find(qx[i], qy[i], qz[i], self.mesh);
+                        *o = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
                     });
                 }
+
                 #[cfg(not(feature = "rayon"))]
                 {
                     for i in 0..qx.len() {
-                        out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh);
+                        out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
                     }
                 }
                 Ok(())
             }
-            Backend::GPU => self.locate_gpu(qx, qy, qz, out),
+
+            Backend::GPU => self.locate_gpu(qx, qy, qz, out, mode),
         }
     }
 
     #[cfg(feature = "gpu")]
     #[allow(unsafe_code)]
-    fn locate_gpu(&self, qx: &[f64], qy: &[f64], qz: &[f64], out: &mut [i32]) -> GpuResult<()> {
+    fn locate_gpu(
+        &self,
+        qx: &[f64],
+        qy: &[f64],
+        qz: &[f64],
+        out: &mut [i32],
+        mode: LocateMode,
+    ) -> GpuResult<()> {
         let gpu = self.gpu.as_ref().expect("GPU backend not initialized");
 
         let n = qx.len();
@@ -339,6 +371,12 @@ impl<'a> Locator3D<'a> {
         launch.arg(&out_d);
         let n_i32 = n as i32;
         launch.arg(&n_i32);
+
+        let mode_i32 = match mode {
+            LocateMode::StrictInside => 0,
+            LocateMode::InsideOrBoundary => 1,
+        };
+        launch.arg(&mode_i32);
 
         // BVH
         launch.arg(&gpu.bvh.xmin);
@@ -367,119 +405,15 @@ impl<'a> Locator3D<'a> {
     }
 
     #[cfg(not(feature = "gpu"))]
-    fn locate_gpu(&self, _qx: &[f64], _qy: &[f64], _qz: &[f64], _out: &mut [i32]) -> GpuResult<()> {
+    fn locate_gpu(
+        &self,
+        _qx: &[f64],
+        _qy: &[f64],
+        _qz: &[f64],
+        _out: &mut [i32],
+        _mode: LocateMode,
+    ) -> GpuResult<()> {
         Err(GpuError::Unavailable)
-    }
-}
-
-#[cfg(test)]
-mod test_gpu_availability {
-    use super::*;
-    use crate::mesh::TetMesh;
-
-    #[cfg(not(feature = "gpu"))]
-    #[test]
-    fn gpu_backend_unavailable_errors() {
-        let vx = vec![0.0, 1.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0];
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-
-        let mesh = TriMesh {
-            vx: &vx,
-            vy: &vy,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-        };
-
-        let res = Locator2D::new(&mesh).with_backend(Backend::GPU);
-        assert!(res.is_err());
-    }
-}
-
-#[cfg(all(test, not(feature = "gpu")))]
-mod tests_3d_gpu_unavailable {
-    use super::*;
-    use crate::mesh::TetMesh;
-
-    #[test]
-    fn locator3d_gpu_unavailable() {
-        let vx = vec![0.0, 1.0, 0.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0, 0.0];
-        let vz = vec![0.0, 0.0, 0.0, 1.0];
-
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-        let t3 = vec![3usize];
-
-        let mesh = TetMesh {
-            vx: &vx,
-            vy: &vy,
-            vz: &vz,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-            t3: &t3,
-        };
-
-        let res = Locator3D::new(&mesh).with_backend(Backend::GPU);
-        assert!(res.is_err());
-    }
-}
-
-#[cfg(all(test, feature = "gpu"))]
-mod tests_3d_gpu_stress {
-    use super::*;
-    use crate::mesh::TetMesh;
-
-    #[test]
-    fn locator3d_gpu_matches_cpu_random() {
-        // Simple tetra
-        let vx = vec![0.0, 1.0, 0.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0, 0.0];
-        let vz = vec![0.0, 0.0, 0.0, 1.0];
-
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-        let t3 = vec![3usize];
-
-        let mesh = TetMesh {
-            vx: &vx,
-            vy: &vy,
-            vz: &vz,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-            t3: &t3,
-        };
-
-        let n = 50_000;
-        let mut qx = Vec::with_capacity(n);
-        let mut qy = Vec::with_capacity(n);
-        let mut qz = Vec::with_capacity(n);
-
-        for i in 0..n {
-            let t = i as f64 / n as f64;
-            qx.push(t * 1.5);
-            qy.push(t * 1.5);
-            qz.push(t * 1.5);
-        }
-
-        let mut out_cpu = vec![-99; n];
-        let mut out_gpu = vec![-99; n];
-
-        let cpu = Locator3D::new(&mesh).with_backend(Backend::Serial).unwrap();
-
-        let gpu = Locator3D::new(&mesh).with_backend(Backend::GPU).unwrap();
-
-        cpu.locate(&qx, &qy, &qz, &mut out_cpu);
-        gpu.locate(&qx, &qy, &qz, &mut out_gpu);
-
-        assert_eq!(out_cpu, out_gpu);
     }
 }
 

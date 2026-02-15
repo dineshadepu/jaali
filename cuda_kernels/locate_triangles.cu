@@ -28,12 +28,35 @@ bool point_in_triangle_strict(
     }
 }
 
+extern "C" __device__ __forceinline__
+bool point_in_triangle_inclusive(
+    double px, double py,
+    double ax, double ay,
+    double bx, double by,
+    double cx, double cy
+) {
+    const double EPS = 1e-12;
+
+    double v0 = orient2d(px, py, bx, by, cx, cy);
+    double v1 = orient2d(ax, ay, px, py, cx, cy);
+    double v2 = orient2d(ax, ay, bx, by, px, py);
+    double v3 = orient2d(ax, ay, bx, by, cx, cy);
+
+    if (v3 > 0.0) {
+        return v0 >= -EPS && v1 >= -EPS && v2 >= -EPS;
+    } else {
+        return v0 <= EPS && v1 <= EPS && v2 <= EPS;
+    }
+}
+
+
 extern "C" __global__
 void locate_triangles(
     const double* qx,
     const double* qy,
     int* out,
     int n_queries,
+    int mode,
 
     // BVH
     const double* xmin,
@@ -75,15 +98,29 @@ void locate_triangles(
             int i1 = t1[tid];
             int i2 = t2[tid];
 
-            if (point_in_triangle_strict(
-                px, py,
-                vx[i0], vy[i0],
-                vx[i1], vy[i1],
-                vx[i2], vy[i2]
-            )) {
-                out[i] = tid;
-                return;
+            bool inside;
+
+            if (mode == 0) {
+                inside = point_in_triangle_strict(
+                                        px, py,
+                                        vx[i0], vy[i0],
+                                        vx[i1], vy[i1],
+                                        vx[i2], vy[i2]
+                                        );
+            } else {
+                inside = point_in_triangle_inclusive(
+                                        px, py,
+                                        vx[i0], vy[i0],
+                                        vx[i1], vy[i1],
+                                        vx[i2], vy[i2]
+                                        );
             }
+
+            if (inside) {
+               out[i] = tid;
+               return;
+            }
+
         } else {
             stack[sp++] = left[n];
             stack[sp++] = right[n];

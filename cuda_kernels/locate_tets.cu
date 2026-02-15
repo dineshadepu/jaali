@@ -38,18 +38,42 @@ bool point_in_tet_strict(
     }
 }
 
+__device__ __forceinline__
+bool point_in_tet_inclusive(
+    double px, double py, double pz,
+    double ax, double ay, double az,
+    double bx, double by, double bz,
+    double cx, double cy, double cz,
+    double dx, double dy, double dz
+) {
+    const double EPS = 1e-12;
+
+    double v0 = orient(px, py, pz, bx, by, bz, cx, cy, cz, dx, dy, dz);
+    double v1 = orient(ax, ay, az, px, py, pz, cx, cy, cz, dx, dy, dz);
+    double v2 = orient(ax, ay, az, bx, by, bz, px, py, pz, dx, dy, dz);
+    double v3 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, px, py, pz);
+    double v4 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
+
+    if (v4 > 0.0) {
+        return v0 >= -EPS && v1 >= -EPS && v2 >= -EPS && v3 >= -EPS;
+    } else {
+        return v0 <= EPS && v1 <= EPS && v2 <= EPS && v3 <= EPS;
+    }
+}
+
+
 // ------------------------------------------------------------
 // locate_tets kernel
 // ------------------------------------------------------------
 
 extern "C" __global__
 void locate_tets(
-    // Queries
     const double* qx,
     const double* qy,
     const double* qz,
     int* out,
     int n_queries,
+    int mode,               // <-- NEW
 
     // BVH
     const double* xmin,
@@ -78,15 +102,14 @@ void locate_tets(
     double py = qy[tidx];
     double pz = qz[tidx];
 
-    // Fixed-size stack (BVH depth bounded)
-    int stack[64];
+    // IMPORTANT: larger stack + guard
+    int stack[128];
     int sp = 0;
     stack[sp++] = 0;
 
     while (sp > 0) {
         int n = stack[--sp];
 
-        // AABB test
         if (px < xmin[n] || px > xmax[n] ||
             py < ymin[n] || py > ymax[n] ||
             pz < zmin[n] || pz > zmax[n]) {
@@ -100,20 +123,35 @@ void locate_tets(
             int i2 = t2[cell];
             int i3 = t3[cell];
 
-            if (point_in_tet_strict(
-                px, py, pz,
-                vx[i0], vy[i0], vz[i0],
-                vx[i1], vy[i1], vz[i1],
-                vx[i2], vy[i2], vz[i2],
-                vx[i3], vy[i3], vz[i3]
-            )) {
+            bool inside;
+            if (mode == 0) {
+                inside = point_in_tet_strict(
+                    px, py, pz,
+                    vx[i0], vy[i0], vz[i0],
+                    vx[i1], vy[i1], vz[i1],
+                    vx[i2], vy[i2], vz[i2],
+                    vx[i3], vy[i3], vz[i3]
+                );
+            } else {
+                inside = point_in_tet_inclusive(
+                    px, py, pz,
+                    vx[i0], vy[i0], vz[i0],
+                    vx[i1], vy[i1], vz[i1],
+                    vx[i2], vy[i2], vz[i2],
+                    vx[i3], vy[i3], vz[i3]
+                );
+            }
+
+            if (inside) {
                 out[tidx] = cell;
                 return;
             }
         } else {
-            // Internal BVH node
-            stack[sp++] = left[n];
-            stack[sp++] = right[n];
+            // stack overflow guard
+            if (sp + 2 < 128) {
+                stack[sp++] = left[n];
+                stack[sp++] = right[n];
+            }
         }
     }
 

@@ -24,11 +24,11 @@ fn single_triangle_inside_outside() {
     let bvh = Bvh2D::build(&mesh);
 
     // Inside
-    let inside = bvh.find(0.25, 0.25, &mesh);
+    let inside = bvh.find_strict(0.25, 0.25, &mesh);
     assert_eq!(inside, 0);
 
     // Outside
-    let outside = bvh.find(1.5, 1.5, &mesh);
+    let outside = bvh.find_strict(1.5, 1.5, &mesh);
     assert_eq!(outside, -1);
 }
 
@@ -56,11 +56,11 @@ fn single_tet_inside_outside() {
     let bvh = Bvh3D::build(&mesh);
 
     // Inside
-    let inside = bvh.find(0.2, 0.2, 0.2, &mesh);
+    let inside = bvh.find_strict(0.2, 0.2, 0.2, &mesh);
     assert_eq!(inside, 0);
 
     // Outside
-    let outside = bvh.find(1.2, 1.2, 1.2, &mesh);
+    let outside = bvh.find_strict(1.2, 1.2, 1.2, &mesh);
     assert_eq!(outside, -1);
 }
 
@@ -88,7 +88,7 @@ fn batch_queries_2d() {
 
     let mut out = vec![-99; qx.len()];
     for i in 0..qx.len() {
-        out[i] = bvh.find(qx[i], qy[i], &mesh);
+        out[i] = bvh.find_strict(qx[i], qy[i], &mesh);
     }
 
     assert_eq!(out, vec![0, 0, -1]);
@@ -141,7 +141,7 @@ fn bvh_matches_bruteforce_random_points() {
         x = (x * 1.37 + 0.11) % 1.5;
         y = (y * 1.91 + 0.07) % 1.5;
 
-        let bvh_id = bvh.find(x, y, &mesh);
+        let bvh_id = bvh.find_strict(x, y, &mesh);
         let brute_id = brute_force_find(x, y, &mesh);
 
         assert_eq!(bvh_id, brute_id);
@@ -167,14 +167,14 @@ fn bvh_boundary_cases() {
     let bvh = Bvh2D::build(&mesh);
 
     // vertices → outside in StrictInside
-    assert_eq!(bvh.find(0.0, 0.0, &mesh), -1);
-    assert_eq!(bvh.find(1.0, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.0, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(1.0, 0.0, &mesh), -1);
 
     // edge midpoint → outside
-    assert_eq!(bvh.find(0.5, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.5, 0.0, &mesh), -1);
 
     // strictly inside
-    assert_eq!(bvh.find(0.25, 0.25, &mesh), 0);
+    assert_eq!(bvh.find_strict(0.25, 0.25, &mesh), 0);
 }
 
 fn vtk_available(path: &str) -> bool {
@@ -316,7 +316,7 @@ fn mesh_aabb_2d(vx: &[f64], vy: &[f64]) -> (f64, f64, f64, f64) {
 //     let mut bvh_results = Vec::with_capacity(n_queries);
 //     let t0_bvh = Instant::now();
 //     for &(px, py) in &query_points {
-//         bvh_results.push(bvh.find(px, py, &mesh));
+//         bvh_results.push(bvh.find_strict(px, py, &mesh));
 //     }
 //     let bvh_time = t0_bvh.elapsed();
 

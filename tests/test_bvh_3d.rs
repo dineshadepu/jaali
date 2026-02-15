@@ -167,8 +167,8 @@ fn single_tet_inside_outside() {
     };
     let bvh = Bvh3D::build(&mesh);
 
-    assert_eq!(bvh.find(0.2, 0.2, 0.2, &mesh), 0);
-    assert_eq!(bvh.find(1.2, 1.2, 1.2, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.2, 0.2, 0.2, &mesh), 0);
+    assert_eq!(bvh.find_strict(1.2, 1.2, 1.2, &mesh), -1);
 }
 
 #[test]
@@ -194,16 +194,16 @@ fn tet_boundary_cases() {
     let bvh = Bvh3D::build(&mesh);
 
     // Vertex
-    assert_eq!(bvh.find(0.0, 0.0, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.0, 0.0, 0.0, &mesh), -1);
 
     // Face center
-    assert_eq!(bvh.find(0.33, 0.33, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.33, 0.33, 0.0, &mesh), -1);
 
     // Edge midpoint
-    assert_eq!(bvh.find(0.5, 0.0, 0.0, &mesh), -1);
+    assert_eq!(bvh.find_strict(0.5, 0.0, 0.0, &mesh), -1);
 
     // strictly inside
-    assert_eq!(bvh.find(0.2, 0.2, 0.2, &mesh), 0);
+    assert_eq!(bvh.find_strict(0.2, 0.2, 0.2, &mesh), 0);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn bvh_3d_matches_bruteforce_random() {
         y = (y * 1.73 + 0.07) % 1.5;
         z = (z * 1.19 + 0.13) % 1.5;
 
-        let bvh_id = bvh.find(x, y, z, &mesh);
+        let bvh_id = bvh.find_strict(x, y, z, &mesh);
         let brute_id = brute_force_find_tet(x, y, z, &mesh);
 
         assert_eq!(bvh_id, brute_id);
@@ -277,7 +277,7 @@ fn bvh_3d_matches_bruteforce_random() {
 
 //     let t0 = Instant::now();
 //     for &(x, y, z) in &queries {
-//         bvh_out.push(bvh.find(x, y, z, &mesh));
+//         bvh_out.push(bvh.find_strict(x, y, z, &mesh));
 //     }
 //     let bvh_time = t0.elapsed();
 
