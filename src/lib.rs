@@ -6,11 +6,12 @@
 //!   Given a mesh (structured or unstructured) and query points,
 //!   efficiently determine which cell contains each point.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(not(feature = "gpu"), forbid(unsafe_code))]
 #![warn(missing_docs)]
 
 pub mod bvh;
 pub mod geometry;
+pub mod gpu;
 pub mod locator;
 pub mod mesh;
 #[cfg(feature = "python")]
@@ -21,8 +22,10 @@ mod test_bvh_2d;
 mod test_bvh_3d;
 
 pub use crate::bvh::{Bvh2D, Bvh3D};
+pub use crate::gpu::*;
 pub use crate::locator::{Backend, Locator2D, Locator3D};
 pub use crate::mesh::{TetMesh, TriMesh};
+
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 

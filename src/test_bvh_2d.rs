@@ -94,7 +94,7 @@ fn batch_queries_2d() {
     assert_eq!(out, vec![0, 0, -1]);
 }
 
-fn brute_force_find(px: f64, py: f64, mesh: &TriMesh) -> i32 {
+pub fn brute_force_find(px: f64, py: f64, mesh: &TriMesh) -> i32 {
     for i in 0..mesh.t0.len() {
         if crate::geometry::point_in_triangle(
             px,
@@ -181,7 +181,7 @@ fn vtk_available(path: &str) -> bool {
     std::path::Path::new(path).exists()
 }
 
-fn read_vtk_2d(filename: &str) -> (Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>, Vec<usize>) {
+pub fn read_vtk_2d(filename: &str) -> (Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>, Vec<usize>) {
     let file = File::open(filename).expect("cannot open file");
     let reader = BufReader::new(file);
 
@@ -244,7 +244,7 @@ fn lcg(seed: &mut u64) -> f64 {
     x
 }
 
-fn generate_points_2d(n: usize, vx: &[f64], vy: &[f64]) -> Vec<(f64, f64)> {
+pub fn generate_points_2d(n: usize, vx: &[f64], vy: &[f64]) -> Vec<(f64, f64)> {
     let (xmin, ymin, xmax, ymax) = mesh_aabb_2d(vx, vy);
 
     let dx = xmax - xmin;

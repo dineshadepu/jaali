@@ -1,6 +1,19 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use jaali::{Backend, Locator3D, mesh::TetMesh};
+use criterion::{criterion_group, criterion_main, Criterion};
+use jaali::mesh::TetMesh;
+use jaali::{Backend, Locator3D};
 
+fn available_backends() -> Vec<Backend> {
+    let mut v = vec![Backend::Serial, Backend::ParallelCPU];
+
+    #[cfg(feature = "gpu")]
+    {
+        v.push(Backend::GPU);
+    }
+
+    v
+}
+
+/// Simple tetrahedral grid generator
 fn generate_grid_mesh_3d(
     nx: usize,
     ny: usize,
@@ -18,6 +31,8 @@ fn generate_grid_mesh_3d(
     let mut vy = Vec::new();
     let mut vz = Vec::new();
 
+    let idx = |i: usize, j: usize, k: usize| (k * ny + j) * nx + i;
+
     for k in 0..nz {
         for j in 0..ny {
             for i in 0..nx {
@@ -27,8 +42,6 @@ fn generate_grid_mesh_3d(
             }
         }
     }
-
-    let idx = |i: usize, j: usize, k: usize| k * nx * ny + j * nx + i;
 
     let mut t0 = Vec::new();
     let mut t1 = Vec::new();
@@ -42,12 +55,18 @@ fn generate_grid_mesh_3d(
                 let v100 = idx(i + 1, j, k);
                 let v010 = idx(i, j + 1, k);
                 let v001 = idx(i, j, k + 1);
+                let v111 = idx(i + 1, j + 1, k + 1);
 
-                // simple tetra per cell (sufficient for benchmarking)
+                // Simple tetra decomposition (not optimal but fine for benchmarks)
                 t0.push(v000);
                 t1.push(v100);
                 t2.push(v010);
-                t3.push(v001);
+                t3.push(v111);
+
+                t0.push(v000);
+                t1.push(v010);
+                t2.push(v001);
+                t3.push(v111);
             }
         }
     }
@@ -56,7 +75,7 @@ fn generate_grid_mesh_3d(
 }
 
 fn bench_locator_3d_small_mesh(c: &mut Criterion) {
-    // single tetrahedron
+    // Single tetrahedron
     let vx = vec![0.0, 1.0, 0.0, 0.0];
     let vy = vec![0.0, 0.0, 1.0, 0.0];
     let vz = vec![0.0, 0.0, 0.0, 1.0];
@@ -76,17 +95,17 @@ fn bench_locator_3d_small_mesh(c: &mut Criterion) {
         t3: &t3,
     };
 
-    let qx = vec![0.25; 100_000];
-    let qy = vec![0.25; 100_000];
-    let qz: Vec<f64> = (0..100_000).map(|i| (i % 100) as f64 * 0.01).collect();
+    let qx: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
+    let qy: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
+    let qz: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
 
-    let backends = [Backend::Serial, Backend::ParallelCPU];
+    for backend in available_backends() {
+        let locator = Locator3D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
 
-    for backend in backends {
-        let locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
         let mut out = vec![-1; qx.len()];
-
-        let name = format!("locator_3d_small_{:?}", backend);
+        let name = format!("locator3d_small_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {
@@ -98,8 +117,8 @@ fn bench_locator_3d_small_mesh(c: &mut Criterion) {
 }
 
 fn bench_locator_3d_large_mesh(c: &mut Criterion) {
-    // ~125k tetrahedra
-    let (vx, vy, vz, t0, t1, t2, t3) = generate_grid_mesh_3d(50, 50, 50);
+    // ~50k tetrahedra
+    let (vx, vy, vz, t0, t1, t2, t3) = generate_grid_mesh_3d(40, 40, 40);
 
     let mesh = TetMesh {
         vx: &vx,
@@ -111,17 +130,18 @@ fn bench_locator_3d_large_mesh(c: &mut Criterion) {
         t3: &t3,
     };
 
-    let qx = vec![25.3; 100_000];
-    let qy = vec![25.3; 100_000];
-    let qz: Vec<f64> = (0..100_000).map(|i| (i % 50) as f64 + 0.2).collect();
+    let n = 100_000;
+    let qx: Vec<f64> = (0..n).map(|i| (i % 40) as f64 + 0.3).collect();
+    let qy: Vec<f64> = (0..n).map(|i| ((i / 40) % 40) as f64 + 0.3).collect();
+    let qz: Vec<f64> = (0..n).map(|i| ((i / 1600) % 40) as f64 + 0.3).collect();
 
-    let backends = [Backend::Serial, Backend::ParallelCPU];
+    for backend in available_backends() {
+        let locator = Locator3D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
 
-    for backend in backends {
-        let locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
         let mut out = vec![-1; qx.len()];
-
-        let name = format!("locator_3d_large_{:?}", backend);
+        let name = format!("locator3d_large_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {

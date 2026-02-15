@@ -10,9 +10,18 @@ use crate::mesh::{TetMesh, TriMesh};
 fn parse_backend(backend: Option<&str>) -> PyResult<Backend> {
     match backend.unwrap_or("parallel") {
         "serial" => Ok(Backend::Serial),
-        "parallel" | "rayon" => Ok(Backend::ParallelCpu),
+        "parallel" | "rayon" => Ok(Backend::ParallelCPU),
+
+        #[cfg(feature = "gpu")]
+        "gpu" => Ok(Backend::GPU),
+
+        #[cfg(not(feature = "gpu"))]
+        "gpu" => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "JAALI was built without GPU support",
+        )),
+
         other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Unknown backend '{}'. Expected 'serial' or 'parallel'",
+            "Unknown backend '{}'. Expected 'serial', 'parallel', or 'gpu'",
             other
         ))),
     }
@@ -45,7 +54,12 @@ impl PyLocator2D {
         let mesh = Box::leak(Box::new(TriMesh { vx, vy, t0, t1, t2 }));
 
         let backend = parse_backend(backend)?;
-        let locator = Locator2D::new(mesh).with_backend(backend);
+        let locator = Locator2D::new(mesh).with_backend(backend).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Failed to initialize backend {:?}: {:?}",
+                backend, e
+            ))
+        })?;
 
         Ok(Self { locator })
     }
@@ -119,7 +133,12 @@ impl PyLocator3D {
         }));
 
         let backend = parse_backend(backend)?;
-        let locator = Locator3D::new(mesh).with_backend(backend);
+        let locator = Locator3D::new(mesh).with_backend(backend).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Failed to initialize backend {:?}: {:?}",
+                backend, e
+            ))
+        })?;
 
         Ok(Self { locator })
     }

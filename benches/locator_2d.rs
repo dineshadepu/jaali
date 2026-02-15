@@ -1,5 +1,17 @@
-use criterion::{Criterion, criterion_group, criterion_main};
-use jaali::{Backend, Locator2D, mesh::TriMesh};
+use criterion::{criterion_group, criterion_main, Criterion};
+use jaali::mesh::TriMesh;
+use jaali::{Backend, Locator2D};
+
+fn available_backends() -> Vec<Backend> {
+    let mut v = vec![Backend::Serial, Backend::ParallelCPU];
+
+    #[cfg(feature = "gpu")]
+    {
+        v.push(Backend::GPU);
+    }
+
+    v
+}
 
 fn generate_grid_mesh_2d(
     nx: usize,
@@ -62,13 +74,13 @@ fn bench_locator_2d_small_mesh(c: &mut Criterion) {
         .collect();
     let qy: Vec<f64> = vec![0.3; qx.len()];
 
-    let backends = [Backend::Serial, Backend::ParallelCPU];
+    for backend in available_backends() {
+        let locator = Locator2D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
 
-    for backend in backends {
-        let locator = Locator2D::new(&mesh).with_backend(backend).unwrap();
         let mut out = vec![-1; qx.len()];
-
-        let name = format!("locator_2d_small_{:?}", backend);
+        let name = format!("locator2d_small_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {
@@ -96,13 +108,13 @@ fn bench_locator_2d_large_mesh(c: &mut Criterion) {
         .map(|i| ((i / 300) % 300) as f64 + 0.3)
         .collect();
 
-    let backends = [Backend::Serial, Backend::ParallelCPU];
+    for backend in available_backends() {
+        let locator = Locator2D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
 
-    for backend in backends {
-        let locator = Locator2D::new(&mesh).with_backend(backend).unwrap();
         let mut out = vec![-1; qx.len()];
-
-        let name = format!("locator_2d_large_{:?}", backend);
+        let name = format!("locator2d_large_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {

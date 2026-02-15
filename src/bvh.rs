@@ -2,6 +2,9 @@ use crate::geometry::{point_in_tet, point_in_triangle};
 use crate::geometry::{point_in_tet_strict, point_in_triangle_strict};
 use crate::mesh::{TetMesh, TriMesh};
 
+use crate::gpu::*;
+use std::sync::Arc;
+
 #[inline(always)]
 fn triangle_aabb(i: usize, mesh: &TriMesh) -> (f64, f64, f64, f64) {
     let i0 = mesh.t0[i];
@@ -21,6 +24,30 @@ fn triangle_aabb(i: usize, mesh: &TriMesh) -> (f64, f64, f64, f64) {
         x0.max(x1.max(x2)),
         y0.max(y1.max(y2)),
     )
+}
+
+#[cfg(feature = "gpu")]
+pub struct Bvh3DGPU {
+    pub xmin: CudaSlice<f64>,
+    pub ymin: CudaSlice<f64>,
+    pub zmin: CudaSlice<f64>,
+    pub xmax: CudaSlice<f64>,
+    pub ymax: CudaSlice<f64>,
+    pub zmax: CudaSlice<f64>,
+    pub left: CudaSlice<i32>,
+    pub right: CudaSlice<i32>,
+    pub tet: CudaSlice<i32>,
+}
+
+#[cfg(feature = "gpu")]
+pub struct Bvh2DGPU {
+    pub xmin: CudaSlice<f64>,
+    pub ymin: CudaSlice<f64>,
+    pub xmax: CudaSlice<f64>,
+    pub ymax: CudaSlice<f64>,
+    pub left: CudaSlice<i32>,
+    pub right: CudaSlice<i32>,
+    pub tri: CudaSlice<i32>,
 }
 
 pub struct Bvh2D {
@@ -131,6 +158,25 @@ impl Bvh2D {
         }
 
         -1
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn to_gpu(&self, stream: Arc<CudaStream>) -> GpuResult<Bvh2DGPU> {
+        debug_assert_eq!(self.xmin.len(), self.xmax.len());
+        debug_assert_eq!(self.xmin.len(), self.ymin.len());
+        debug_assert_eq!(self.xmin.len(), self.left.len());
+        debug_assert_eq!(self.xmin.len(), self.right.len());
+        debug_assert_eq!(self.xmin.len(), self.tri.len());
+
+        Ok(Bvh2DGPU {
+            xmin: stream.clone_htod(&self.xmin)?,
+            ymin: stream.clone_htod(&self.ymin)?,
+            xmax: stream.clone_htod(&self.xmax)?,
+            ymax: stream.clone_htod(&self.ymax)?,
+            left: stream.clone_htod(&self.left)?,
+            right: stream.clone_htod(&self.right)?,
+            tri: stream.clone_htod(&self.tri)?,
+        })
     }
 }
 
@@ -311,5 +357,27 @@ impl Bvh3D {
         }
 
         -1
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn to_gpu(&self, stream: Arc<CudaStream>) -> GpuResult<Bvh3DGPU> {
+        debug_assert_eq!(self.xmin.len(), self.xmax.len());
+        debug_assert_eq!(self.xmin.len(), self.ymin.len());
+        debug_assert_eq!(self.xmin.len(), self.zmin.len());
+        debug_assert_eq!(self.xmin.len(), self.left.len());
+        debug_assert_eq!(self.xmin.len(), self.right.len());
+        debug_assert_eq!(self.xmin.len(), self.tet.len());
+
+        Ok(Bvh3DGPU {
+            xmin: stream.clone_htod(&self.xmin)?,
+            ymin: stream.clone_htod(&self.ymin)?,
+            zmin: stream.clone_htod(&self.zmin)?,
+            xmax: stream.clone_htod(&self.xmax)?,
+            ymax: stream.clone_htod(&self.ymax)?,
+            zmax: stream.clone_htod(&self.zmax)?,
+            left: stream.clone_htod(&self.left)?,
+            right: stream.clone_htod(&self.right)?,
+            tet: stream.clone_htod(&self.tet)?,
+        })
     }
 }
