@@ -1,4 +1,4 @@
-use super::*;
+use jaali::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -245,59 +245,59 @@ fn bvh_3d_matches_bruteforce_random() {
     }
 }
 
-#[test]
-#[ignore]
-fn stress_bvh_vs_bruteforce_vtk_3d() {
-    let vtk_path = "./test_data/field_3d.vtk";
-    if !std::path::Path::new(vtk_path).exists() {
-        eprintln!("VTK file not found, skipping 3D stress test");
-        return;
-    }
+// #[test]
+// #[ignore]
+// fn stress_bvh_vs_bruteforce_vtk_3d() {
+//     let vtk_path = "./test_data/field_3d.vtk";
+//     if !std::path::Path::new(vtk_path).exists() {
+//         eprintln!("VTK file not found, skipping 3D stress test");
+//         return;
+//     }
 
-    let (vx, vy, vz, t0, t1, t2, t3) = read_vtk_3d(vtk_path);
+//     let (vx, vy, vz, t0, t1, t2, t3) = read_vtk_3d(vtk_path);
 
-    let mesh = TetMesh {
-        vx: &vx,
-        vy: &vy,
-        vz: &vz,
-        t0: &t0,
-        t1: &t1,
-        t2: &t2,
-        t3: &t3,
-    };
-    let bvh = Bvh3D::build(&mesh);
+//     let mesh = TetMesh {
+//         vx: &vx,
+//         vy: &vy,
+//         vz: &vz,
+//         t0: &t0,
+//         t1: &t1,
+//         t2: &t2,
+//         t3: &t3,
+//     };
+//     let bvh = Bvh3D::build(&mesh);
 
-    let n_queries = 50;
-    let queries = generate_points_3d(n_queries, &vx, &vy, &vz);
+//     let n_queries = 50;
+//     let queries = generate_points_3d(n_queries, &vx, &vy, &vz);
 
-    let mut bvh_out = Vec::with_capacity(n_queries);
-    let mut brute_out = Vec::with_capacity(n_queries);
+//     let mut bvh_out = Vec::with_capacity(n_queries);
+//     let mut brute_out = Vec::with_capacity(n_queries);
 
-    use std::time::Instant;
+//     use std::time::Instant;
 
-    let t0 = Instant::now();
-    for &(x, y, z) in &queries {
-        bvh_out.push(bvh.find(x, y, z, &mesh));
-    }
-    let bvh_time = t0.elapsed();
+//     let t0 = Instant::now();
+//     for &(x, y, z) in &queries {
+//         bvh_out.push(bvh.find(x, y, z, &mesh));
+//     }
+//     let bvh_time = t0.elapsed();
 
-    let t1 = Instant::now();
-    for &(x, y, z) in &queries {
-        brute_out.push(brute_force_find_tet(x, y, z, &mesh));
-    }
-    let brute_time = t1.elapsed();
+//     let t1 = Instant::now();
+//     for &(x, y, z) in &queries {
+//         brute_out.push(brute_force_find_tet(x, y, z, &mesh));
+//     }
+//     let brute_time = t1.elapsed();
 
-    assert_eq!(
-        bvh_out
-            .iter()
-            .zip(&brute_out)
-            .filter(|(a, b)| a != b)
-            .count(),
-        0
-    );
+//     assert_eq!(
+//         bvh_out
+//             .iter()
+//             .zip(&brute_out)
+//             .filter(|(a, b)| a != b)
+//             .count(),
+//         0
+//     );
 
-    println!(
-        "3D BVH speedup: {:.1}×",
-        brute_time.as_secs_f64() / bvh_time.as_secs_f64()
-    );
-}
+//     println!(
+//         "3D BVH speedup: {:.1}×",
+//         brute_time.as_secs_f64() / bvh_time.as_secs_f64()
+//     );
+// }

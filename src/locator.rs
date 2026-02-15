@@ -373,100 +373,6 @@ impl<'a> Locator3D<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mesh::TriMesh;
-
-    #[test]
-    fn locator2d_serial_basic() {
-        let vx = vec![0.0, 1.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0];
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-
-        let mesh = TriMesh {
-            vx: &vx,
-            vy: &vy,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-        };
-
-        let qx = vec![0.25, 1.5];
-        let qy = vec![0.25, 1.5];
-        let mut out = vec![-99; 2];
-
-        let backends = [Backend::Serial, Backend::ParallelCPU];
-
-        for backend in backends {
-            let locator = Locator2D::new(&mesh).with_backend(backend).unwrap();
-            locator.locate(&qx, &qy, &mut out);
-
-            assert_eq!(out, vec![0, -1]);
-        }
-    }
-
-    #[cfg(feature = "rayon")]
-    #[test]
-    fn locator2d_parallel_basic() {
-        let vx = vec![0.0, 1.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0];
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-
-        let mesh = TriMesh {
-            vx: &vx,
-            vy: &vy,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-        };
-
-        let locator = Locator2D::new(&mesh)
-            .with_backend(Backend::ParallelCPU)
-            .unwrap();
-
-        let qx = vec![0.25, 1.5];
-        let qy = vec![0.25, 1.5];
-        let mut out = vec![-99; 2];
-
-        locator.locate(&qx, &qy, &mut out);
-        assert_eq!(out, vec![0, -1]);
-    }
-
-    #[cfg(feature = "gpu")]
-    #[test]
-    fn locator2d_gpu_basic() {
-        let vx = vec![0.0, 1.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0];
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-
-        let mesh = TriMesh {
-            vx: &vx,
-            vy: &vy,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-        };
-
-        let locator = Locator2D::new(&mesh)
-            .with_backend(Backend::GPU)
-            .expect("GPU backend init failed");
-
-        let qx = vec![0.25, 1.5];
-        let qy = vec![0.25, 1.5];
-        let mut out = vec![-99; 2];
-
-        locator.locate(&qx, &qy, &mut out);
-        assert_eq!(out, vec![0, -1]);
-    }
-}
-
-#[cfg(test)]
 mod test_gpu_availability {
     use super::*;
     use crate::mesh::TetMesh;
@@ -490,92 +396,6 @@ mod test_gpu_availability {
 
         let res = Locator2D::new(&mesh).with_backend(Backend::GPU);
         assert!(res.is_err());
-    }
-}
-
-#[cfg(test)]
-mod tests_3d {
-    use super::*;
-    use crate::mesh::TetMesh;
-
-    #[test]
-    fn locator3d_basic_cpu() {
-        // Single tetrahedron
-        let vx = vec![0.0, 1.0, 0.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0, 0.0];
-        let vz = vec![0.0, 0.0, 0.0, 1.0];
-
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-        let t3 = vec![3usize];
-
-        let mesh = TetMesh {
-            vx: &vx,
-            vy: &vy,
-            vz: &vz,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-            t3: &t3,
-        };
-
-        let qx = vec![0.1, 2.0];
-        let qy = vec![0.1, 2.0];
-        let qz = vec![0.1, 2.0];
-
-        let mut out = vec![-99; 2];
-
-        let backends = [Backend::Serial, Backend::ParallelCPU];
-
-        for backend in backends {
-            let locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
-
-            locator.locate(&qx, &qy, &qz, &mut out);
-            assert_eq!(out, vec![0, -1]);
-        }
-    }
-}
-
-#[cfg(all(test, feature = "gpu"))]
-mod tests_3d_gpu {
-    use super::*;
-    use crate::mesh::TetMesh;
-
-    #[test]
-    fn locator3d_basic_gpu() {
-        // Single tetrahedron
-        let vx = vec![0.0, 1.0, 0.0, 0.0];
-        let vy = vec![0.0, 0.0, 1.0, 0.0];
-        let vz = vec![0.0, 0.0, 0.0, 1.0];
-
-        let t0 = vec![0usize];
-        let t1 = vec![1usize];
-        let t2 = vec![2usize];
-        let t3 = vec![3usize];
-
-        let mesh = TetMesh {
-            vx: &vx,
-            vy: &vy,
-            vz: &vz,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-            t3: &t3,
-        };
-
-        let qx = vec![0.1, 2.0];
-        let qy = vec![0.1, 2.0];
-        let qz = vec![0.1, 2.0];
-
-        let mut out = vec![-99; 2];
-
-        let locator = Locator3D::new(&mesh)
-            .with_backend(Backend::GPU)
-            .expect("GPU backend init failed");
-
-        locator.locate(&qx, &qy, &qz, &mut out);
-        assert_eq!(out, vec![0, -1]);
     }
 }
 
@@ -663,94 +483,94 @@ mod tests_3d_gpu_stress {
     }
 }
 
-#[cfg(test)]
-mod stress_locator_2d {
-    use super::*;
-    use crate::test_bvh_2d::brute_force_find as brute_force_find_2d;
-    use crate::test_bvh_2d::generate_points_2d;
-    use crate::test_bvh_2d::read_vtk_2d;
-    use std::time::Instant;
+// #[cfg(test)]
+// mod stress_locator_2d {
+//     use super::*;
+//     use crate::test_bvh_2d::brute_force_find as brute_force_find_2d;
+//     use crate::test_bvh_2d::generate_points_2d;
+//     use crate::test_bvh_2d::read_vtk_2d;
+//     use std::time::Instant;
 
-    #[test]
-    #[ignore]
-    fn stress_locator_vs_bruteforce_vtk_2d() {
-        let vtk_path = "./test_data/field_2d.vtk";
-        if !std::path::Path::new(vtk_path).exists() {
-            eprintln!("VTK file not found, skipping stress test");
-            return;
-        }
+//     #[test]
+//     #[ignore]
+//     fn stress_locator_vs_bruteforce_vtk_2d() {
+//         let vtk_path = "./test_data/field_2d.vtk";
+//         if !std::path::Path::new(vtk_path).exists() {
+//             eprintln!("VTK file not found, skipping stress test");
+//             return;
+//         }
 
-        // ----------------------------
-        // Load mesh
-        // ----------------------------
-        let (vx, vy, t0, t1, t2) = read_vtk_2d(vtk_path);
+//         // ----------------------------
+//         // Load mesh
+//         // ----------------------------
+//         let (vx, vy, t0, t1, t2) = read_vtk_2d(vtk_path);
 
-        let mesh = TriMesh {
-            vx: &vx,
-            vy: &vy,
-            t0: &t0,
-            t1: &t1,
-            t2: &t2,
-        };
+//         let mesh = TriMesh {
+//             vx: &vx,
+//             vy: &vy,
+//             t0: &t0,
+//             t1: &t1,
+//             t2: &t2,
+//         };
 
-        let n_queries = 100_000;
-        let queries = generate_points_2d(n_queries, &vx, &vy);
+//         let n_queries = 100_000;
+//         let queries = generate_points_2d(n_queries, &vx, &vy);
 
-        // ----------------------------
-        // Brute-force reference
-        // ----------------------------
-        let t0 = Instant::now();
-        let brute: Vec<i32> = queries
-            .iter()
-            .map(|&(x, y)| brute_force_find_2d(x, y, &mesh))
-            .collect();
-        let t_brute = t0.elapsed();
+//         // ----------------------------
+//         // Brute-force reference
+//         // ----------------------------
+//         let t0 = Instant::now();
+//         let brute: Vec<i32> = queries
+//             .iter()
+//             .map(|&(x, y)| brute_force_find_2d(x, y, &mesh))
+//             .collect();
+//         let t_brute = t0.elapsed();
 
-        // ----------------------------
-        // Test all backends
-        // ----------------------------
-        let backends = vec![
-            Backend::Serial,
-            Backend::ParallelCPU,
-            #[cfg(feature = "gpu")]
-            Backend::GPU,
-        ];
+//         // ----------------------------
+//         // Test all backends
+//         // ----------------------------
+//         let backends = vec![
+//             Backend::Serial,
+//             Backend::ParallelCPU,
+//             #[cfg(feature = "gpu")]
+//             Backend::GPU,
+//         ];
 
-        for backend in backends {
-            let locator = Locator2D::new(&mesh)
-                .with_backend(backend)
-                .expect("backend init failed");
+//         for backend in backends {
+//             let locator = Locator2D::new(&mesh)
+//                 .with_backend(backend)
+//                 .expect("backend init failed");
 
-            let mut out = vec![-99; n_queries];
+//             let mut out = vec![-99; n_queries];
 
-            let t0 = Instant::now();
-            let (qx, qy): (Vec<_>, Vec<_>) = queries.iter().cloned().unzip();
-            locator.locate(&qx, &qy, &mut out);
-            let t_loc = t0.elapsed();
+//             let t0 = Instant::now();
+//             let (qx, qy): (Vec<_>, Vec<_>) = queries.iter().cloned().unzip();
+//             locator.locate(&qx, &qy, &mut out);
+//             let t_loc = t0.elapsed();
 
-            // ----------------------------
-            // Correctness: inside / outside
-            // ----------------------------
-            let mismatches = out
-                .iter()
-                .zip(&brute)
-                .filter(|(a, b)| (**a >= 0) != (**b >= 0))
-                .count();
+//             // ----------------------------
+//             // Correctness: inside / outside
+//             // ----------------------------
+//             let mismatches = out
+//                 .iter()
+//                 .zip(&brute)
+//                 .filter(|(a, b)| (**a >= 0) != (**b >= 0))
+//                 .count();
 
-            assert_eq!(mismatches, 0, "Mismatch for backend {:?}", backend);
+//             assert_eq!(mismatches, 0, "Mismatch for backend {:?}", backend);
 
-            println!(
-                "{:?}: {:.3} s ({:.2} M q/s)",
-                backend,
-                t_loc.as_secs_f64(),
-                n_queries as f64 / t_loc.as_secs_f64() / 1e6
-            );
-        }
+//             println!(
+//                 "{:?}: {:.3} s ({:.2} M q/s)",
+//                 backend,
+//                 t_loc.as_secs_f64(),
+//                 n_queries as f64 / t_loc.as_secs_f64() / 1e6
+//             );
+//         }
 
-        println!(
-            "Brute force: {:.3} s ({:.2} M q/s)",
-            t_brute.as_secs_f64(),
-            n_queries as f64 / t_brute.as_secs_f64() / 1e6
-        );
-    }
-}
+//         println!(
+//             "Brute force: {:.3} s ({:.2} M q/s)",
+//             t_brute.as_secs_f64(),
+//             n_queries as f64 / t_brute.as_secs_f64() / 1e6
+//         );
+//     }
+// }

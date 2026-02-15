@@ -17,10 +17,6 @@ pub mod mesh;
 #[cfg(feature = "python")]
 mod python;
 
-#[cfg(test)]
-mod test_bvh_2d;
-mod test_bvh_3d;
-
 pub use crate::bvh::{Bvh2D, Bvh3D};
 pub use crate::gpu::*;
 pub use crate::locator::{Backend, Locator2D, Locator3D};

@@ -4,6 +4,20 @@ use pyo3::prelude::*;
 use crate::locator::{Backend, Locator2D, Locator3D};
 use crate::mesh::{TetMesh, TriMesh};
 
+#[pyfunction]
+fn gpu_available() -> bool {
+    cfg!(feature = "gpu")
+}
+
+#[pyfunction]
+fn available_backends() -> Vec<&'static str> {
+    let mut v = vec!["serial", "parallel"];
+    if cfg!(feature = "gpu") {
+        v.push("gpu");
+    }
+    v
+}
+
 /// ---------------------------------------------
 /// Backend parsing (shared by 2D and 3D)
 /// ---------------------------------------------
@@ -17,7 +31,9 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Backend> {
 
         #[cfg(not(feature = "gpu"))]
         "gpu" => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "JAALI was built without GPU support",
+            "JAALI was built without GPU support. \
+                 Reinstall with GPU enabled, e.g. `pip install jaali[gpu]` \
+                 or build from source with `--features gpu`.",
         )),
 
         other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
@@ -178,5 +194,10 @@ impl PyLocator3D {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLocator2D>()?;
     m.add_class::<PyLocator3D>()?;
+
+    // Register free functions
+    m.add_function(wrap_pyfunction!(gpu_available, m)?)?;
+    m.add_function(wrap_pyfunction!(available_backends, m)?)?;
+
     Ok(())
 }

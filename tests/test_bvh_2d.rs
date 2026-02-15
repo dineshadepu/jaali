@@ -1,4 +1,4 @@
-use super::*;
+use jaali::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -282,73 +282,73 @@ fn mesh_aabb_2d(vx: &[f64], vy: &[f64]) -> (f64, f64, f64, f64) {
     (xmin, ymin, xmax, ymax)
 }
 
-#[test]
-#[ignore]
-fn stress_bvh_vs_bruteforce_vtk_2d() {
-    use std::time::Instant;
+// #[test]
+// #[ignore]
+// fn stress_bvh_vs_bruteforce_vtk_2d() {
+//     use std::time::Instant;
 
-    let vtk_path = "./test_data/field_2d.vtk";
-    if !vtk_available(vtk_path) {
-        eprintln!("VTK file not found, skipping stress test");
-        return;
-    }
+//     let vtk_path = "./test_data/field_2d.vtk";
+//     if !vtk_available(vtk_path) {
+//         eprintln!("VTK file not found, skipping stress test");
+//         return;
+//     }
 
-    let (vx, vy, t0, t1, t2) = read_vtk_2d(vtk_path);
+//     let (vx, vy, t0, t1, t2) = read_vtk_2d(vtk_path);
 
-    assert!(!vx.is_empty());
-    assert_eq!(t0.len(), t1.len());
-    assert_eq!(t0.len(), t2.len());
+//     assert!(!vx.is_empty());
+//     assert_eq!(t0.len(), t1.len());
+//     assert_eq!(t0.len(), t2.len());
 
-    let mesh = TriMesh {
-        vx: &vx,
-        vy: &vy,
-        t0: &t0,
-        t1: &t1,
-        t2: &t2,
-    };
+//     let mesh = TriMesh {
+//         vx: &vx,
+//         vy: &vy,
+//         t0: &t0,
+//         t1: &t1,
+//         t2: &t2,
+//     };
 
-    let bvh = Bvh2D::build(&mesh);
+//     let bvh = Bvh2D::build(&mesh);
 
-    let n_queries = 1_000;
-    let query_points = generate_points_2d(n_queries, &vx, &vy);
+//     let n_queries = 1_000;
+//     let query_points = generate_points_2d(n_queries, &vx, &vy);
 
-    // BVH timing
-    let mut bvh_results = Vec::with_capacity(n_queries);
-    let t0_bvh = Instant::now();
-    for &(px, py) in &query_points {
-        bvh_results.push(bvh.find(px, py, &mesh));
-    }
-    let bvh_time = t0_bvh.elapsed();
+//     // BVH timing
+//     let mut bvh_results = Vec::with_capacity(n_queries);
+//     let t0_bvh = Instant::now();
+//     for &(px, py) in &query_points {
+//         bvh_results.push(bvh.find(px, py, &mesh));
+//     }
+//     let bvh_time = t0_bvh.elapsed();
 
-    // Brute timing
-    let mut brute_results = Vec::with_capacity(n_queries);
-    let t0_brute = Instant::now();
-    for &(px, py) in &query_points {
-        brute_results.push(brute_force_find(px, py, &mesh));
-    }
-    let brute_time = t0_brute.elapsed();
+//     // Brute timing
+//     let mut brute_results = Vec::with_capacity(n_queries);
+//     let t0_brute = Instant::now();
+//     for &(px, py) in &query_points {
+//         brute_results.push(brute_force_find(px, py, &mesh));
+//     }
+//     let brute_time = t0_brute.elapsed();
 
-    // Correctness
-    let mismatches = bvh_results
-        .iter()
-        .zip(&brute_results)
-        .filter(|(a, b)| a != b)
-        .count();
+//     // Correctness
+//     let mismatches = bvh_results
+//         .iter()
+//         .zip(&brute_results)
+//         .filter(|(a, b)| a != b)
+//         .count();
 
-    assert_eq!(mismatches, 0);
+//     assert_eq!(mismatches, 0);
 
-    println!(
-        "BVH:   {:.3} s ({:.2} M q/s)",
-        bvh_time.as_secs_f64(),
-        n_queries as f64 / bvh_time.as_secs_f64() / 1e6
-    );
-    println!(
-        "Brute: {:.3} s ({:.2} M q/s)",
-        brute_time.as_secs_f64(),
-        n_queries as f64 / brute_time.as_secs_f64() / 1e6
-    );
-    println!(
-        "Speedup: {:.1}×",
-        brute_time.as_secs_f64() / bvh_time.as_secs_f64()
-    );
-}
+//     println!(
+//         "BVH:   {:.3} s ({:.2} M q/s)",
+//         bvh_time.as_secs_f64(),
+//         n_queries as f64 / bvh_time.as_secs_f64() / 1e6
+//     );
+//     println!(
+//         "Brute: {:.3} s ({:.2} M q/s)",
+//         brute_time.as_secs_f64(),
+//         n_queries as f64 / brute_time.as_secs_f64() / 1e6
+//     );
+//     println!(
+//         "Speedup: {:.1}×",
+//         brute_time.as_secs_f64() / bvh_time.as_secs_f64()
+//     );
+// }

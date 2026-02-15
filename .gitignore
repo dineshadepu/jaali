@@ -1,2 +1,27 @@
 /target
 Cargo.lock
+
+# build artifacts
+build/
+target/
+tmp/
+output/
+.cache/
+__pycache__/
+.mypy_cache/
+
+
+# third-party / generated
+hdf5/
+kokkos/
+Cabana/
+
+# large / generated files
+*.stl
+*.vtk
+*.csv
+*.msh
+*.cfg
+*.h5
+*.dat
+*.xmf
