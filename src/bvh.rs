@@ -128,18 +128,12 @@ impl Bvh2D {
         node
     }
 
-    pub fn find_all(
-        &self,
-        px: f64,
-        py: f64,
-        mesh: &TriMesh,
-        max_hits: usize,
-    ) -> (usize, SmallVec<[i32; 8]>) {
+    pub fn find_all(&self, px: f64, py: f64, mesh: &TriMesh, max_hits: usize) -> (usize, Vec<i32>) {
         let mut count = 0;
         let mut stack = Vec::with_capacity(64);
         stack.push(0);
 
-        let mut out = SmallVec::new();
+        let mut out = Vec::new();
         while let Some(n) = stack.pop() {
             let n = n as usize;
 
@@ -334,9 +328,9 @@ impl Bvh3D {
         pz: f64,
         mesh: &TetMesh,
         H: usize,
-    ) -> (usize, SmallVec<[i32; 8]>) {
+    ) -> (usize, Vec<i32>) {
         let mut hits = 0;
-        let mut ids = SmallVec::<[i32; 8]>::new();
+        let mut ids = Vec::new();
 
         let mut stack = Vec::with_capacity(64);
         stack.push(0);

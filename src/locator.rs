@@ -34,9 +34,9 @@ pub struct Locator2D<'a> {
     backend: Backend,
 
     // ---- locate_all storage (authoritative) ----
-    max_hits: usize,
-    indices: Vec<i32>, // len = max_queries * max_hits
-    counts: Vec<u16>,  // len = max_queries
+    pub max_hits: usize,
+    pub indices: Vec<i32>, // len = max_queries * max_hits
+    pub counts: Vec<u16>,  // len = max_queries
 
     #[cfg(feature = "gpu")]
     gpu: Option<Locator2DGPU>,
@@ -160,7 +160,7 @@ impl<'a> Locator2D<'a> {
             let mesh = self.mesh;
             let bvh = &self.bvh;
 
-            let results: Vec<(usize, SmallVec<[i32; 8]>)> = (0..qx.len())
+            let results: Vec<(usize, Vec<i32>)> = (0..qx.len())
                 .into_par_iter()
                 .map(|q| bvh.find_all(qx[q], qy[q], mesh, H))
                 .collect();
@@ -203,9 +203,9 @@ impl<'a> Locator2D<'a> {
         launch.arg(&indices_d);
         launch.arg(&counts_d);
 
-        let binding = (n as i32);
+        let binding = n as i32;
         launch.arg(&(binding));
-        let binding = (H as i32);
+        let binding = H as i32;
         launch.arg(&(binding));
         println!("n is {:?}, H is {:?}", n, H);
 
@@ -377,7 +377,7 @@ impl<'a> Locator3D<'a> {
             let mesh = self.mesh;
             let bvh = &self.bvh;
 
-            let results: Vec<(usize, SmallVec<[i32; 8]>)> = (0..qx.len())
+            let results: Vec<(usize, Vec<i32>)> = (0..qx.len())
                 .into_par_iter()
                 .map(|q| bvh.find_all(qx[q], qy[q], qz[q], mesh, H))
                 .collect();
@@ -420,9 +420,9 @@ impl<'a> Locator3D<'a> {
         launch.arg(&qz_d);
         launch.arg(&indices_d);
         launch.arg(&counts_d);
-        let binding = (n as i32);
+        let binding = n as i32;
         launch.arg(&(binding));
-        let binding = (H as i32);
+        let binding = H as i32;
         launch.arg(&(binding));
 
         // BVH

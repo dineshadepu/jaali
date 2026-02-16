@@ -7,7 +7,7 @@
 //!   efficiently determine which cell contains each point.
 
 #![cfg_attr(not(feature = "gpu"), forbid(unsafe_code))]
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 
 pub mod bvh;
 pub mod geometry;
