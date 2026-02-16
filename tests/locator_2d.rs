@@ -1,5 +1,8 @@
 mod utils;
 use utils::*;
+use utils::{collect_hits_2d, make_large_unstructured_tri_mesh_2d};
+
+use std::collections::HashSet;
 
 use jaali::{Backend, LocateMode, Locator2D, TriMesh};
 
@@ -189,52 +192,306 @@ fn locator2d_center_shared_by_8_triangles() {
     }
 }
 
-// // ------------------------------------------------------------
-// // Stress test (BVH vs brute force)
-// // ------------------------------------------------------------
-// #[test]
-// #[ignore]
-// fn stress_locator2d_vs_bruteforce() {
-//     let (vx, vy, t0, t1, t2) = generate_grid_mesh_2d(200, 200);
+#[test]
+fn stress_2d_random_queries_large_batch() {
+    use rand::Rng;
 
-//     let mesh = TriMesh {
-//         vx: &vx,
-//         vy: &vy,
-//         t0: &t0,
-//         t1: &t1,
-//         t2: &t2,
-//     };
+    let mesh = make_large_unstructured_tri_mesh_2d(200, 200);
+    let n = 100_000;
+    let max_hits = 8;
 
-//     // Strictly inside points
-//     let n = 10_000;
-//     let mut qx = Vec::with_capacity(n);
-//     let mut qy = Vec::with_capacity(n);
+    let mut rng = rand::thread_rng();
+    let qx: Vec<f64> = (0..n).map(|_| rng.gen_range(-10.0..210.0)).collect();
+    let qy: Vec<f64> = (0..n).map(|_| rng.gen_range(-10.0..210.0)).collect();
 
-//     for i in 0..n {
-//         qx.push((i % 199) as f64 + 0.3);
-//         qy.push(((i / 199) % 199) as f64 + 0.3);
-//     }
+    let mut results = Vec::new();
 
-//     let brute: Vec<i32> = qx
-//         .iter()
-//         .zip(&qy)
-//         .map(|(&x, &y)| brute_force_find_2d(x, y, &mesh))
-//         .collect();
+    for backend in backends() {
+        let mut loc = Locator2D::new_with_capacity(&mesh, n, max_hits)
+            .with_backend(backend)
+            .unwrap();
 
-//     for backend in backends() {
-//         let locator = Locator2D::new(&mesh)
-//             .with_backend(backend)
-//             .expect("backend init failed");
+        loc.locate_all(&qx, &qy).unwrap();
 
-//         let mut out = vec![-1; n];
-//         locator.locate(&qx, &qy, &mut out);
+        results.push((
+            loc.counts.clone(),
+            collect_hits_2d(&loc.indices, &loc.counts, max_hits, n),
+        ));
+    }
 
-//         let mismatches = out
-//             .iter()
-//             .zip(&brute)
-//             .filter(|(a, b)| (**a >= 0) != (**b >= 0))
-//             .count();
+    // compare all backends against the first
+    for i in 1..results.len() {
+        assert_eq!(results[0].0, results[i].0, "counts mismatch");
+        assert_eq!(results[0].1, results[i].1, "hit sets mismatch");
+    }
+}
 
-//         assert_eq!(mismatches, 0, "Mismatch for backend {:?}", backend);
-//     }
-// }
+#[test]
+fn stress_2d_boundary_points() {
+    let mesh = make_large_unstructured_tri_mesh_2d(200, 200);
+    let max_hits = 8;
+
+    let mut qx = Vec::new();
+    let mut qy = Vec::new();
+
+    // vertical grid line x = 50
+    for i in 0..50_000 {
+        let t = i as f64 / 50_000.0 * 200.0;
+        qx.push(50.0);
+        qy.push(t);
+    }
+
+    let n = qx.len();
+    let mut results = Vec::new();
+
+    for backend in backends() {
+        let mut loc = Locator2D::new_with_capacity(&mesh, n, max_hits)
+            .with_backend(backend)
+            .unwrap();
+
+        loc.locate_all(&qx, &qy).unwrap();
+
+        results.push((
+            loc.counts.clone(),
+            collect_hits_2d(&loc.indices, &loc.counts, max_hits, n),
+        ));
+    }
+
+    for i in 1..results.len() {
+        assert_eq!(results[0].0, results[i].0);
+        assert_eq!(results[0].1, results[i].1);
+    }
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn stress_2d_repeated_calls_same_locator_all_backends() {
+    use rand::Rng;
+
+    let mesh = make_large_unstructured_tri_mesh_2d(100, 100);
+    let n = 10_000;
+    let max_hits = 8;
+
+    let mut rng = rand::thread_rng();
+
+    let mut loc_serial = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        .with_backend(Backend::Serial)
+        .unwrap();
+
+    let mut loc_parallel = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        .with_backend(Backend::ParallelCPU)
+        .unwrap();
+
+    let mut loc_gpu = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        .with_backend(Backend::GPU)
+        .unwrap();
+
+    for iter in 0..50 {
+        let qx: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..100.0)).collect();
+        let qy: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..100.0)).collect();
+
+        loc_serial.locate_all(&qx, &qy).unwrap();
+        loc_parallel.locate_all(&qx, &qy).unwrap();
+        loc_gpu.locate_all(&qx, &qy).unwrap();
+
+        assert_eq!(
+            loc_serial.counts, loc_parallel.counts,
+            "serial vs parallel counts mismatch at iter {}",
+            iter
+        );
+        assert_eq!(
+            loc_serial.counts, loc_gpu.counts,
+            "serial vs gpu counts mismatch at iter {}",
+            iter
+        );
+
+        for q in 0..n {
+            let c = loc_serial.counts[q] as usize;
+            let base = q * max_hits;
+
+            let s: HashSet<i32> = loc_serial.indices[base..base + c].iter().copied().collect();
+            let p: HashSet<i32> = loc_parallel.indices[base..base + c]
+                .iter()
+                .copied()
+                .collect();
+            let g: HashSet<i32> = loc_gpu.indices[base..base + c].iter().copied().collect();
+
+            assert_eq!(
+                s, p,
+                "serial vs parallel mismatch at q={}, iter={}",
+                q, iter
+            );
+            assert_eq!(s, g, "serial vs gpu mismatch at q={}, iter={}", q, iter);
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn stress_2d_variable_batch_sizes_same_locator_all_backends() {
+    let mesh = make_large_unstructured_tri_mesh_2d(100, 100);
+    let max_hits = 8;
+
+    let mut loc_serial = Locator2D::new_with_capacity(&mesh, 1, max_hits)
+        .with_backend(Backend::Serial)
+        .unwrap();
+
+    let mut loc_parallel = Locator2D::new_with_capacity(&mesh, 1, max_hits)
+        .with_backend(Backend::ParallelCPU)
+        .unwrap();
+
+    let mut loc_gpu = Locator2D::new_with_capacity(&mesh, 1, max_hits)
+        .with_backend(Backend::GPU)
+        .unwrap();
+
+    for &n in &[1, 7, 64, 513, 4096, 10_000, 256, 5] {
+        let qx = vec![0.3; n];
+        let qy = vec![0.3; n];
+
+        loc_serial.locate_all(&qx, &qy).unwrap();
+        loc_parallel.locate_all(&qx, &qy).unwrap();
+        loc_gpu.locate_all(&qx, &qy).unwrap();
+
+        assert_eq!(&loc_serial.counts[..n], &loc_parallel.counts[..n]);
+        assert_eq!(&loc_serial.counts[..n], &loc_gpu.counts[..n]);
+    }
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn stress_2d_idempotent_repeated_calls() {
+    let mesh = make_large_unstructured_tri_mesh_2d(100, 100);
+    let n = 10_000;
+    let max_hits = 8;
+
+    let qx = vec![42.42; n];
+    let qy = vec![17.17; n];
+
+    let mut loc = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        .with_backend(Backend::GPU)
+        .unwrap();
+
+    loc.locate_all(&qx, &qy).unwrap();
+    let counts_ref = loc.counts.clone();
+    let indices_ref = loc.indices.clone();
+
+    for _ in 0..20 {
+        loc.locate_all(&qx, &qy).unwrap();
+        assert_eq!(loc.counts, counts_ref);
+        assert_eq!(loc.indices, indices_ref);
+    }
+}
+
+#[test]
+fn stress_2d_high_valence_vertex() {
+    let n = 32;
+    let mut vx = vec![0.0];
+    let mut vy = vec![0.0];
+
+    for i in 0..n {
+        let t = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+        vx.push(t.cos());
+        vy.push(t.sin());
+    }
+
+    let mut t0 = Vec::new();
+    let mut t1 = Vec::new();
+    let mut t2 = Vec::new();
+
+    for i in 1..n {
+        t0.push(0);
+        t1.push(i);
+        t2.push(i + 1);
+    }
+    t0.push(0);
+    t1.push(n);
+    t2.push(1);
+
+    let mesh = TriMesh {
+        vx: &vx,
+        vy: &vy,
+        t0: &t0,
+        t1: &t1,
+        t2: &t2,
+    };
+
+    let qx = vec![0.0];
+    let qy = vec![0.0];
+
+    for backend in backends() {
+        let mut loc = Locator2D::new_with_capacity(&mesh, 1, 32)
+            .with_backend(backend)
+            .unwrap();
+
+        loc.locate_all(&qx, &qy).unwrap();
+        assert_eq!(loc.counts[0] as usize, n);
+    }
+}
+
+#[test]
+fn stress_2d_epsilon_sweep_near_edge() {
+    let mesh = make_large_unstructured_tri_mesh_2d(10, 10);
+
+    let base_x = 5.0;
+    let y = 5.5;
+
+    for backend in backends() {
+        let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
+
+        for k in -10..=10 {
+            let eps = (k as f64) * 1e-14;
+            let qx = vec![base_x + eps];
+            let qy = vec![y];
+
+            loc.locate_all(&qx, &qy).unwrap();
+            assert!(loc.counts[0] >= 1);
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn stress_2d_many_queries_tiny_mesh() {
+    let mesh = make_large_unstructured_tri_mesh_2d(1, 1);
+    let n = 200_000;
+    let max_hits = 4;
+
+    let qx = vec![0.25; n];
+    let qy = vec![0.25; n];
+
+    let mut loc = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        .with_backend(Backend::GPU)
+        .unwrap();
+
+    loc.locate_all(&qx, &qy).unwrap();
+
+    for &c in &loc.counts {
+        assert!(c >= 1, "each query must hit at least one triangle");
+        assert!((c as usize) <= max_hits, "counts must not exceed max_hits");
+    }
+}
+
+#[test]
+fn stress_2d_locate_vs_locate_all_consistency() {
+    let mesh = make_large_unstructured_tri_mesh_2d(20, 20);
+
+    let qx = vec![3.3, 7.7, 15.5];
+    let qy = vec![3.3, 7.7, 15.5];
+
+    for backend in backends() {
+        let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
+
+        let mut out = vec![-1; qx.len()];
+        loc.locate(&qx, &qy, &mut out);
+
+        loc.locate_all(&qx, &qy).unwrap();
+
+        for i in 0..qx.len() {
+            if loc.counts[i] > 0 {
+                assert_eq!(out[i], loc.indices[i * loc.max_hits]);
+            } else {
+                assert_eq!(out[i], -1);
+            }
+        }
+    }
+}

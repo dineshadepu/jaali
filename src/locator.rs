@@ -14,8 +14,8 @@ use rayon::prelude::*;
 
 use std::sync::Arc;
 
-const MAX_HITS_2D: usize = 12;
-const MAX_HITS_3D: usize = 24;
+const MAX_HITS_2D: usize = 32;
+const MAX_HITS_3D: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Backend {
@@ -301,9 +301,9 @@ pub struct Locator3D<'a> {
     backend: Backend,
 
     // locate_all storage
-    max_hits: usize,
-    indices: Vec<i32>, // size = max_queries * max_hits
-    counts: Vec<u16>,  // size = max_queries
+    pub max_hits: usize,
+    pub indices: Vec<i32>, // size = max_queries * max_hits
+    pub counts: Vec<u16>,  // size = max_queries
 
     #[cfg(feature = "gpu")]
     gpu: Option<Locator3DGPU>,
@@ -313,11 +313,19 @@ pub struct Locator3D<'a> {
 struct Locator3DGPU {
     stream: Arc<CudaStream>,
     kernel: CudaFunction,
+
     bvh: Bvh3DGPU,
     mesh: TetMeshGPU,
+
+    indices: CudaSlice<i32>,
+    counts: CudaSlice<u16>,
 }
 
 impl<'a> Locator3D<'a> {
+    /// Minimal constructor (single-hit legacy usage)
+    pub fn new(mesh: &'a TetMesh<'a>) -> Self {
+        Self::new_with_capacity(mesh, 0, MAX_HITS_3D)
+    }
     pub fn new_with_capacity(mesh: &'a TetMesh<'a>, max_queries: usize, max_hits: usize) -> Self {
         Self {
             bvh: Bvh3D::build(mesh),
@@ -347,6 +355,7 @@ impl<'a> Locator3D<'a> {
     fn init_gpu_backend(mut self) -> GpuResult<Self> {
         let cuda = CudaManager::new(0)?;
         let stream = cuda.new_stream()?;
+        let stream_for_buffers = stream.clone();
 
         let mesh_gpu = self.mesh.to_gpu(stream.clone())?;
         let bvh_gpu = self.bvh.to_gpu(stream.clone())?;
@@ -360,6 +369,8 @@ impl<'a> Locator3D<'a> {
             kernel,
             mesh: mesh_gpu,
             bvh: bvh_gpu,
+            indices: stream_for_buffers.alloc_zeros::<i32>(0)?,
+            counts: stream_for_buffers.alloc_zeros::<u16>(0)?,
         });
 
         Ok(self)
@@ -371,20 +382,37 @@ impl<'a> Locator3D<'a> {
     }
 
     pub fn locate_all(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) -> GpuResult<()> {
-        assert_eq!(qx.len(), qy.len());
-        assert!(qx.len() <= self.counts.len());
+        let n = qx.len();
+        let required = n * self.max_hits;
+
+        // -------- CPU resize --------
+        if self.indices.len() < required {
+            self.indices.resize(required, -1);
+        }
+        if self.counts.len() < n {
+            self.counts.resize(n, 0);
+        }
+
+        // -------- GPU resize --------
+        #[cfg(feature = "gpu")]
+        if let Some(gpu) = &mut self.gpu {
+            if gpu.indices.len() < required {
+                gpu.indices = gpu.stream.alloc_zeros::<i32>(required)?;
+            }
+            if gpu.counts.len() < n {
+                gpu.counts = gpu.stream.alloc_zeros::<u16>(n)?;
+            }
+        }
 
         match self.backend {
             Backend::Serial => {
                 self.locate_all_cpu(qx, qy, qz);
                 Ok(())
             }
-
             Backend::ParallelCPU => {
                 self.locate_all_parallel(qx, qy, qz);
                 Ok(())
             }
-
             Backend::GPU => self.locate_all_gpu(qx, qy, qz),
         }
     }
@@ -441,17 +469,21 @@ impl<'a> Locator3D<'a> {
 
     #[cfg(feature = "gpu")]
     fn locate_all_gpu(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) -> GpuResult<()> {
-        let gpu = self.gpu.as_ref().expect("GPU backend not initialized");
+        let gpu = self.gpu.as_mut().expect("GPU backend not initialized");
 
         let n = qx.len();
         let H = self.max_hits;
 
+        debug_assert!(gpu.indices.len() >= n * H);
+        debug_assert!(gpu.counts.len() >= n);
+
+        // Upload queries
         let qx_d = gpu.stream.clone_htod(qx)?;
         let qy_d = gpu.stream.clone_htod(qy)?;
         let qz_d = gpu.stream.clone_htod(qz)?;
 
-        let mut indices_d = gpu.stream.clone_htod(&self.indices)?;
-        let mut counts_d = gpu.stream.clone_htod(&self.counts)?;
+        // Clear counts (CRITICAL)
+        gpu.stream.memset_zeros(&mut gpu.counts)?;
 
         let cfg = LaunchConfig::for_num_elems(n as u32);
         let mut launch = gpu.stream.launch_builder(&gpu.kernel);
@@ -459,12 +491,13 @@ impl<'a> Locator3D<'a> {
         launch.arg(&qx_d);
         launch.arg(&qy_d);
         launch.arg(&qz_d);
-        launch.arg(&indices_d);
-        launch.arg(&counts_d);
-        let binding = n as i32;
-        launch.arg(&(binding));
-        let binding = H as i32;
-        launch.arg(&(binding));
+        launch.arg(&gpu.indices);
+        launch.arg(&gpu.counts);
+
+        let n_i32 = n as i32;
+        let h_i32 = H as i32;
+        launch.arg(&n_i32);
+        launch.arg(&h_i32);
 
         // BVH
         launch.arg(&gpu.bvh.xmin);
@@ -488,8 +521,9 @@ impl<'a> Locator3D<'a> {
 
         unsafe { launch.launch(cfg)? };
 
-        gpu.stream.memcpy_dtoh(&indices_d, &mut self.indices)?;
-        gpu.stream.memcpy_dtoh(&counts_d, &mut self.counts)?;
+        // Copy back
+        gpu.stream.memcpy_dtoh(&gpu.indices, &mut self.indices)?;
+        gpu.stream.memcpy_dtoh(&gpu.counts, &mut self.counts)?;
 
         Ok(())
     }

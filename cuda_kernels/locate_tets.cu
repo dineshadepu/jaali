@@ -41,7 +41,6 @@ bool point_in_tet_strict(
 __device__ __forceinline__
 bool point_in_tet_inclusive(
     double px, double py, double pz,
-
     double ax, double ay, double az,
     double bx, double by, double bz,
     double cx, double cy, double cz,
@@ -55,51 +54,15 @@ bool point_in_tet_inclusive(
     double v3 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, px, py, pz);
     double v4 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
 
-    // Strict sign check
     if (v4 > 0.0) {
-        if (v0 > EPS && v1 > EPS && v2 > EPS && v3 > EPS)
-            return true;
+        return (v0 >= -EPS && v1 >= -EPS &&
+                v2 >= -EPS && v3 >= -EPS);
     } else {
-        if (v0 < -EPS && v1 < -EPS && v2 < -EPS && v3 < -EPS)
-            return true;
+        return (v0 <= EPS && v1 <= EPS &&
+                v2 <= EPS && v3 <= EPS);
     }
-
-    // ---------- Boundary fallback ----------
-    // Scale tolerance by tet volume
-    double scale = fabs(v4);
-    double tol = EPS * (scale + 1.0);
-
-    double m = fabs(v0);
-    m = fmin(m, fabs(v1));
-    m = fmin(m, fabs(v2));
-    m = fmin(m, fabs(v3));
-
-    return m < tol;
 }
 
-
-// __device__ __forceinline__
-// bool point_in_tet_inclusive(
-//     double px, double py, double pz,
-//     double ax, double ay, double az,
-//     double bx, double by, double bz,
-//     double cx, double cy, double cz,
-//     double dx, double dy, double dz
-// ) {
-//     const double EPS = 1e-12;
-
-//     double v0 = orient(px, py, pz, bx, by, bz, cx, cy, cz, dx, dy, dz);
-//     double v1 = orient(ax, ay, az, px, py, pz, cx, cy, cz, dx, dy, dz);
-//     double v2 = orient(ax, ay, az, bx, by, bz, px, py, pz, dx, dy, dz);
-//     double v3 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, px, py, pz);
-//     double v4 = orient(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
-
-//     if (v4 > 0.0) {
-//         return v0 >= -EPS && v1 >= -EPS && v2 >= -EPS && v3 >= -EPS;
-//     } else {
-//         return v0 <= EPS && v1 <= EPS && v2 <= EPS && v3 <= EPS;
-//     }
-// }
 
 
 // ------------------------------------------------------------
