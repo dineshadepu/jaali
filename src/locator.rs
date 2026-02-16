@@ -1,5 +1,6 @@
 use crate::bvh::{Bvh2D, Bvh3D};
 use crate::mesh::{TetMesh, TriMesh};
+use smallvec::SmallVec;
 
 #[cfg(feature = "gpu")]
 use crate::bvh::{Bvh2DGPU, Bvh3DGPU};
@@ -27,11 +28,15 @@ pub enum LocateMode {
 }
 
 /* ========================== 2D ========================== */
-
 pub struct Locator2D<'a> {
     mesh: &'a TriMesh<'a>,
     bvh: Bvh2D,
     backend: Backend,
+
+    // ---- locate_all storage (authoritative) ----
+    max_hits: usize,
+    indices: Vec<i32>, // len = max_queries * max_hits
+    counts: Vec<u16>,  // len = max_queries
 
     #[cfg(feature = "gpu")]
     gpu: Option<Locator2DGPU>,
@@ -46,17 +51,28 @@ struct Locator2DGPU {
 }
 
 impl<'a> Locator2D<'a> {
+    /// Minimal constructor (single-hit legacy usage)
     pub fn new(mesh: &'a TriMesh<'a>) -> Self {
+        Self::new_with_capacity(mesh, 0, 1)
+    }
+
+    /// Authoritative constructor
+    pub fn new_with_capacity(mesh: &'a TriMesh<'a>, max_queries: usize, max_hits: usize) -> Self {
+        assert!(max_hits > 0);
+
         Self {
             bvh: Bvh2D::build(mesh),
             mesh,
             backend: Backend::Serial,
+
+            max_hits,
+            indices: vec![-1; max_queries * max_hits],
+            counts: vec![0; max_queries],
+
             #[cfg(feature = "gpu")]
             gpu: None,
         }
     }
-
-    /* -------- backend selection (ALWAYS EXISTS) -------- */
 
     pub fn with_backend(mut self, backend: Backend) -> GpuResult<Self> {
         match backend {
@@ -77,7 +93,7 @@ impl<'a> Locator2D<'a> {
         let bvh_gpu = self.bvh.to_gpu(stream.clone())?;
 
         let module = cuda.load_module("cuda_kernels/locate_triangles.ptx")?;
-        let kernel = module.get("locate_triangles")?;
+        let kernel = module.get("locate_triangles_all")?;
 
         self.backend = Backend::GPU;
         self.gpu = Some(Locator2DGPU {
@@ -94,97 +110,106 @@ impl<'a> Locator2D<'a> {
     fn init_gpu_backend(self) -> GpuResult<Self> {
         Err(GpuError::Unavailable)
     }
+}
 
-    /* -------- public API -------- */
-
-    pub fn locate(&self, qx: &[f64], qy: &[f64], out: &mut [i32]) {
-        if let Err(_) = self.locate_with_mode(qx, qy, out, LocateMode::InsideOrBoundary) {
-            panic!("JAALI locate failed");
-        }
-    }
-
-    pub fn locate_with_mode(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
+impl<'a> Locator2D<'a> {
+    /// Fill internal indices + counts
+    pub fn locate_all(&mut self, qx: &[f64], qy: &[f64]) -> GpuResult<()> {
         assert_eq!(qx.len(), qy.len());
-        assert_eq!(qx.len(), out.len());
-        match mode {
-            LocateMode::StrictInside | LocateMode::InsideOrBoundary => {
-                self.locate_with_mode_impl(qx, qy, out, mode)
-            }
-        }
-    }
-    fn locate_with_mode_impl(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
+        assert!(qx.len() <= self.counts.len());
+
         match self.backend {
             Backend::Serial => {
-                for i in 0..qx.len() {
-                    out[i] = self.bvh.find(qx[i], qy[i], self.mesh, mode);
-                }
+                self.locate_all_cpu(qx, qy);
                 Ok(())
             }
 
             Backend::ParallelCPU => {
-                #[cfg(feature = "rayon")]
-                {
-                    out.par_iter_mut().enumerate().for_each(|(i, o)| {
-                        *o = self.bvh.find(qx[i], qy[i], self.mesh, mode);
-                    });
-                }
-
-                #[cfg(not(feature = "rayon"))]
-                {
-                    for i in 0..qx.len() {
-                        out[i] = self.bvh.find(qx[i], qy[i], self.mesh, mode);
-                    }
-                }
+                self.locate_all_parallel(qx, qy);
                 Ok(())
             }
 
-            Backend::GPU => self.locate_gpu(qx, qy, out, mode),
+            Backend::GPU => self.locate_all_gpu(qx, qy),
+        }
+    }
+}
+
+impl<'a> Locator2D<'a> {
+    fn locate_all_cpu(&mut self, qx: &[f64], qy: &[f64]) {
+        let H = self.max_hits;
+
+        for q in 0..qx.len() {
+            let base = q * H;
+
+            let (hits, ids) = self.bvh.find_all(qx[q], qy[q], self.mesh, H);
+
+            self.counts[q] = hits as u16;
+
+            for i in 0..hits {
+                self.indices[base + i] = ids[i];
+            }
+        }
+    }
+
+    fn locate_all_parallel(&mut self, qx: &[f64], qy: &[f64]) {
+        assert_eq!(qx.len(), qy.len());
+        let H = self.max_hits;
+
+        #[cfg(feature = "rayon")]
+        {
+            let mesh = self.mesh;
+            let bvh = &self.bvh;
+
+            let results: Vec<(usize, SmallVec<[i32; 8]>)> = (0..qx.len())
+                .into_par_iter()
+                .map(|q| bvh.find_all(qx[q], qy[q], mesh, H))
+                .collect();
+
+            for (q, (hits, ids)) in results.into_iter().enumerate() {
+                let base = q * H;
+                self.counts[q] = hits as u16;
+
+                for i in 0..hits {
+                    self.indices[base + i] = ids[i];
+                }
+            }
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.locate_all_cpu(qx, qy);
         }
     }
 
     #[cfg(feature = "gpu")]
-    #[allow(unsafe_code)]
-    fn locate_gpu(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
-        let gpu = self.gpu.as_ref().expect("GPU not initialized");
+    fn locate_all_gpu(&mut self, qx: &[f64], qy: &[f64]) -> GpuResult<()> {
+        let gpu = self.gpu.as_ref().expect("GPU backend not initialized");
 
         let n = qx.len();
+        let H = self.max_hits;
+
         let qx_d = gpu.stream.clone_htod(qx)?;
         let qy_d = gpu.stream.clone_htod(qy)?;
-        let mut out_d = gpu.stream.alloc_zeros::<i32>(n)?;
+
+        // Reuse capacity – DO NOT clone_htod
+        let mut indices_d = gpu.stream.clone_htod(&self.indices)?;
+        let mut counts_d = gpu.stream.clone_htod(&self.counts)?;
 
         let cfg = LaunchConfig::for_num_elems(n as u32);
         let mut launch = gpu.stream.launch_builder(&gpu.kernel);
 
         launch.arg(&qx_d);
         launch.arg(&qy_d);
-        launch.arg(&out_d);
-        let n_i32 = n as i32;
-        launch.arg(&n_i32);
+        launch.arg(&indices_d);
+        launch.arg(&counts_d);
 
-        let mode_i32 = match mode {
-            LocateMode::StrictInside => 0,
-            LocateMode::InsideOrBoundary => 1,
-        };
-        launch.arg(&mode_i32);
+        let binding = (n as i32);
+        launch.arg(&(binding));
+        let binding = (H as i32);
+        launch.arg(&(binding));
+        println!("n is {:?}, H is {:?}", n, H);
 
+        // BVH
         launch.arg(&gpu.bvh.xmin);
         launch.arg(&gpu.bvh.ymin);
         launch.arg(&gpu.bvh.xmax);
@@ -193,6 +218,7 @@ impl<'a> Locator2D<'a> {
         launch.arg(&gpu.bvh.right);
         launch.arg(&gpu.bvh.tri);
 
+        // Mesh
         launch.arg(&gpu.mesh.vx);
         launch.arg(&gpu.mesh.vy);
         launch.arg(&gpu.mesh.t0);
@@ -200,13 +226,30 @@ impl<'a> Locator2D<'a> {
         launch.arg(&gpu.mesh.t2);
 
         unsafe { launch.launch(cfg)? };
-        gpu.stream.memcpy_dtoh(&out_d, out)?;
+
+        gpu.stream.memcpy_dtoh(&indices_d, &mut self.indices)?;
+        gpu.stream.memcpy_dtoh(&counts_d, &mut self.counts)?;
+
         Ok(())
     }
 
     #[cfg(not(feature = "gpu"))]
-    fn locate_gpu(&self, _: &[f64], _: &[f64], _: &mut [i32], _: LocateMode) -> GpuResult<()> {
+    fn locate_all_gpu(&self, _qx: &[f64], _qy: &[f64]) -> GpuResult<()> {
         Err(GpuError::Unavailable)
+    }
+
+    pub fn locate(&mut self, qx: &[f64], qy: &[f64], out: &mut [i32]) {
+        assert_eq!(qx.len(), out.len());
+
+        self.locate_all(qx, qy).expect("JAALI locate failed");
+
+        for i in 0..qx.len() {
+            out[i] = if self.counts[i] > 0 {
+                self.indices[i * self.max_hits]
+            } else {
+                -1
+            };
+        }
     }
 }
 
@@ -215,31 +258,39 @@ pub struct Locator3D<'a> {
     mesh: &'a TetMesh<'a>,
     bvh: Bvh3D,
     backend: Backend,
+
+    // locate_all storage
+    max_hits: usize,
+    indices: Vec<i32>, // size = max_queries * max_hits
+    counts: Vec<u16>,  // size = max_queries
+
     #[cfg(feature = "gpu")]
     gpu: Option<Locator3DGPU>,
 }
 
 #[cfg(feature = "gpu")]
-pub struct Locator3DGPU {
-    pub stream: Arc<CudaStream>,
-    pub kernel: CudaFunction,
-    pub bvh: Bvh3DGPU,
-    pub mesh: TetMeshGPU,
+struct Locator3DGPU {
+    stream: Arc<CudaStream>,
+    kernel: CudaFunction,
+    bvh: Bvh3DGPU,
+    mesh: TetMeshGPU,
 }
 
 impl<'a> Locator3D<'a> {
-    pub fn new(mesh: &'a TetMesh<'a>) -> Self {
+    pub fn new_with_capacity(mesh: &'a TetMesh<'a>, max_queries: usize, max_hits: usize) -> Self {
         Self {
             bvh: Bvh3D::build(mesh),
             mesh,
             backend: Backend::Serial,
+
+            max_hits,
+            indices: vec![-1; max_queries * max_hits],
+            counts: vec![0; max_queries],
+
             #[cfg(feature = "gpu")]
             gpu: None,
         }
     }
-
-    /* -------- backend selection (ALWAYS EXISTS) -------- */
-    /// Select execution backend (Serial / ParallelCPU / GPU)
 
     pub fn with_backend(mut self, backend: Backend) -> GpuResult<Self> {
         match backend {
@@ -260,7 +311,7 @@ impl<'a> Locator3D<'a> {
         let bvh_gpu = self.bvh.to_gpu(stream.clone())?;
 
         let module = cuda.load_module("cuda_kernels/locate_tets.ptx")?;
-        let kernel = module.get("locate_tets")?;
+        let kernel = module.get("locate_tets_all")?;
 
         self.backend = Backend::GPU;
         self.gpu = Some(Locator3DGPU {
@@ -278,89 +329,88 @@ impl<'a> Locator3D<'a> {
         Err(GpuError::Unavailable)
     }
 
-    /* -------- public API -------- */
-    /// Locate points using default mode (StrictInside)
-    pub fn locate(&self, qx: &[f64], qy: &[f64], qz: &[f64], out: &mut [i32]) {
-        if let Err(_) = self.locate_with_mode(qx, qy, qz, out, LocateMode::InsideOrBoundary) {
-            panic!("JAALI locate failed");
-        }
-    }
-
-    /// Locate points with explicit mode
-    pub fn locate_with_mode(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        qz: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
+    pub fn locate_all(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) -> GpuResult<()> {
         assert_eq!(qx.len(), qy.len());
-        assert_eq!(qx.len(), qz.len());
-        assert_eq!(qx.len(), out.len());
+        assert!(qx.len() <= self.counts.len());
 
-        match mode {
-            LocateMode::StrictInside | LocateMode::InsideOrBoundary => {
-                self.locate_with_mode_impl(qx, qy, qz, out, mode)
-            }
-        }
-    }
-
-    fn locate_with_mode_impl(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        qz: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
         match self.backend {
             Backend::Serial => {
-                for i in 0..qx.len() {
-                    out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
-                }
+                self.locate_all_cpu(qx, qy, qz);
                 Ok(())
             }
 
             Backend::ParallelCPU => {
-                #[cfg(feature = "rayon")]
-                {
-                    out.par_iter_mut().enumerate().for_each(|(i, o)| {
-                        *o = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
-                    });
-                }
-
-                #[cfg(not(feature = "rayon"))]
-                {
-                    for i in 0..qx.len() {
-                        out[i] = self.bvh.find(qx[i], qy[i], qz[i], self.mesh, mode);
-                    }
-                }
+                self.locate_all_parallel(qx, qy, qz);
                 Ok(())
             }
 
-            Backend::GPU => self.locate_gpu(qx, qy, qz, out, mode),
+            Backend::GPU => self.locate_all_gpu(qx, qy, qz),
+        }
+    }
+
+    pub fn locate_all_cpu(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) {
+        assert_eq!(qx.len(), qy.len());
+        assert_eq!(qx.len(), qz.len());
+        assert!(qx.len() <= self.counts.len());
+
+        let H = self.max_hits;
+
+        for q in 0..qx.len() {
+            let base = q * H;
+
+            let (hits, ids) = self.bvh.find_all(qx[q], qy[q], qz[q], self.mesh, H);
+
+            self.counts[q] = hits as u16;
+
+            for i in 0..hits {
+                self.indices[base + i] = ids[i];
+            }
+        }
+    }
+
+    pub fn locate_all_parallel(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+
+            let H = self.max_hits;
+            let mesh = self.mesh;
+            let bvh = &self.bvh;
+
+            let results: Vec<(usize, SmallVec<[i32; 8]>)> = (0..qx.len())
+                .into_par_iter()
+                .map(|q| bvh.find_all(qx[q], qy[q], qz[q], mesh, H))
+                .collect();
+
+            for (q, (hits, ids)) in results.into_iter().enumerate() {
+                let base = q * H;
+                self.counts[q] = hits as u16;
+
+                for i in 0..hits {
+                    self.indices[base + i] = ids[i];
+                }
+            }
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.locate_all_cpu(qx, qy, qz);
         }
     }
 
     #[cfg(feature = "gpu")]
-    #[allow(unsafe_code)]
-    fn locate_gpu(
-        &self,
-        qx: &[f64],
-        qy: &[f64],
-        qz: &[f64],
-        out: &mut [i32],
-        mode: LocateMode,
-    ) -> GpuResult<()> {
+    fn locate_all_gpu(&mut self, qx: &[f64], qy: &[f64], qz: &[f64]) -> GpuResult<()> {
         let gpu = self.gpu.as_ref().expect("GPU backend not initialized");
 
         let n = qx.len();
+        let H = self.max_hits;
 
         let qx_d = gpu.stream.clone_htod(qx)?;
         let qy_d = gpu.stream.clone_htod(qy)?;
         let qz_d = gpu.stream.clone_htod(qz)?;
-        let mut out_d = gpu.stream.alloc_zeros::<i32>(n)?;
+
+        let mut indices_d = gpu.stream.clone_htod(&self.indices)?;
+        let mut counts_d = gpu.stream.clone_htod(&self.counts)?;
 
         let cfg = LaunchConfig::for_num_elems(n as u32);
         let mut launch = gpu.stream.launch_builder(&gpu.kernel);
@@ -368,15 +418,12 @@ impl<'a> Locator3D<'a> {
         launch.arg(&qx_d);
         launch.arg(&qy_d);
         launch.arg(&qz_d);
-        launch.arg(&out_d);
-        let n_i32 = n as i32;
-        launch.arg(&n_i32);
-
-        let mode_i32 = match mode {
-            LocateMode::StrictInside => 0,
-            LocateMode::InsideOrBoundary => 1,
-        };
-        launch.arg(&mode_i32);
+        launch.arg(&indices_d);
+        launch.arg(&counts_d);
+        let binding = (n as i32);
+        launch.arg(&(binding));
+        let binding = (H as i32);
+        launch.arg(&(binding));
 
         // BVH
         launch.arg(&gpu.bvh.xmin);
@@ -399,21 +446,30 @@ impl<'a> Locator3D<'a> {
         launch.arg(&gpu.mesh.t3);
 
         unsafe { launch.launch(cfg)? };
-        gpu.stream.memcpy_dtoh(&out_d, out)?;
+
+        gpu.stream.memcpy_dtoh(&indices_d, &mut self.indices)?;
+        gpu.stream.memcpy_dtoh(&counts_d, &mut self.counts)?;
 
         Ok(())
     }
 
     #[cfg(not(feature = "gpu"))]
-    fn locate_gpu(
-        &self,
-        _qx: &[f64],
-        _qy: &[f64],
-        _qz: &[f64],
-        _out: &mut [i32],
-        _mode: LocateMode,
-    ) -> GpuResult<()> {
+    fn locate_all_gpu(&self, _qx: &[f64], _qy: &[f64], _qz: &[f64]) -> GpuResult<()> {
         Err(GpuError::Unavailable)
+    }
+
+    pub fn locate(&mut self, qx: &[f64], qy: &[f64], qz: &[f64], out: &mut [i32]) {
+        assert_eq!(qx.len(), out.len());
+
+        self.locate_all(qx, qy, qz).expect("JAALI locate failed");
+
+        for i in 0..qx.len() {
+            out[i] = if self.counts[i] > 0 {
+                self.indices[i * self.max_hits]
+            } else {
+                -1
+            };
+        }
     }
 }
 

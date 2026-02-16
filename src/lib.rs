@@ -19,7 +19,7 @@ mod python;
 
 pub use crate::bvh::{Bvh2D, Bvh3D};
 pub use crate::gpu::*;
-pub use crate::locator::{Backend, Locator2D, Locator3D};
+pub use crate::locator::{Backend, LocateMode, Locator2D, Locator3D};
 pub use crate::mesh::{TetMesh, TriMesh};
 
 #[cfg(feature = "python")]

@@ -5,6 +5,7 @@ use crate::locator::LocateMode;
 use crate::mesh::{TetMesh, TriMesh};
 
 use crate::gpu::*;
+use smallvec::SmallVec;
 use std::sync::Arc;
 
 #[inline(always)]
@@ -127,16 +128,22 @@ impl Bvh2D {
         node
     }
 
-    pub fn find(&self, px: f64, py: f64, mesh: &TriMesh, mode: LocateMode) -> i32 {
+    pub fn find_all(
+        &self,
+        px: f64,
+        py: f64,
+        mesh: &TriMesh,
+        max_hits: usize,
+    ) -> (usize, SmallVec<[i32; 8]>) {
+        let mut count = 0;
         let mut stack = Vec::with_capacity(64);
         stack.push(0);
 
+        let mut out = SmallVec::new();
         while let Some(n) = stack.pop() {
             let n = n as usize;
 
-            // ------------------
-            // AABB rejection
-            // ------------------
+            // AABB reject
             if px < self.xmin[n] || px > self.xmax[n] || py < self.ymin[n] || py > self.ymax[n] {
                 continue;
             }
@@ -145,31 +152,20 @@ impl Bvh2D {
             if tri >= 0 {
                 let i = tri as usize;
 
-                let inside = match mode {
-                    LocateMode::StrictInside => point_in_triangle_strict(
-                        px,
-                        py,
-                        mesh.vx[mesh.t0[i]],
-                        mesh.vy[mesh.t0[i]],
-                        mesh.vx[mesh.t1[i]],
-                        mesh.vy[mesh.t1[i]],
-                        mesh.vx[mesh.t2[i]],
-                        mesh.vy[mesh.t2[i]],
-                    ),
-                    LocateMode::InsideOrBoundary => point_in_triangle_inclusive(
-                        px,
-                        py,
-                        mesh.vx[mesh.t0[i]],
-                        mesh.vy[mesh.t0[i]],
-                        mesh.vx[mesh.t1[i]],
-                        mesh.vy[mesh.t1[i]],
-                        mesh.vx[mesh.t2[i]],
-                        mesh.vy[mesh.t2[i]],
-                    ),
-                };
-
-                if inside {
-                    return tri;
+                if point_in_triangle_inclusive(
+                    px,
+                    py,
+                    mesh.vx[mesh.t0[i]],
+                    mesh.vy[mesh.t0[i]],
+                    mesh.vx[mesh.t1[i]],
+                    mesh.vy[mesh.t1[i]],
+                    mesh.vx[mesh.t2[i]],
+                    mesh.vy[mesh.t2[i]],
+                ) {
+                    if count < max_hits {
+                        out.push(tri);
+                        count += 1;
+                    }
                 }
             } else {
                 stack.push(self.left[n]);
@@ -177,17 +173,7 @@ impl Bvh2D {
             }
         }
 
-        -1
-    }
-
-    #[inline(always)]
-    pub fn find_strict(&self, px: f64, py: f64, mesh: &TriMesh) -> i32 {
-        self.find(px, py, mesh, LocateMode::StrictInside)
-    }
-
-    #[inline(always)]
-    pub fn find_inclusive(&self, px: f64, py: f64, mesh: &TriMesh) -> i32 {
-        self.find(px, py, mesh, LocateMode::InsideOrBoundary)
+        (count, out)
     }
 
     #[cfg(feature = "gpu")]
@@ -341,16 +327,23 @@ impl Bvh3D {
         node
     }
 
-    pub fn find(&self, px: f64, py: f64, pz: f64, mesh: &TetMesh, mode: LocateMode) -> i32 {
+    pub fn find_all(
+        &self,
+        px: f64,
+        py: f64,
+        pz: f64,
+        mesh: &TetMesh,
+        H: usize,
+    ) -> (usize, SmallVec<[i32; 8]>) {
+        let mut hits = 0;
+        let mut ids = SmallVec::<[i32; 8]>::new();
+
         let mut stack = Vec::with_capacity(64);
         stack.push(0);
 
         while let Some(n) = stack.pop() {
             let n = n as usize;
 
-            // ------------------
-            // AABB rejection
-            // ------------------
             if px < self.xmin[n]
                 || px > self.xmax[n]
                 || py < self.ymin[n]
@@ -361,68 +354,39 @@ impl Bvh3D {
                 continue;
             }
 
-            let tid = self.tet[n];
-            if tid >= 0 {
-                let i = tid as usize;
+            let tet = self.tet[n];
+            if tet >= 0 {
+                let i = tet as usize;
 
-                let inside = match mode {
-                    LocateMode::StrictInside => point_in_tet_strict(
-                        px,
-                        py,
-                        pz,
-                        mesh.vx[mesh.t0[i]],
-                        mesh.vy[mesh.t0[i]],
-                        mesh.vz[mesh.t0[i]],
-                        mesh.vx[mesh.t1[i]],
-                        mesh.vy[mesh.t1[i]],
-                        mesh.vz[mesh.t1[i]],
-                        mesh.vx[mesh.t2[i]],
-                        mesh.vy[mesh.t2[i]],
-                        mesh.vz[mesh.t2[i]],
-                        mesh.vx[mesh.t3[i]],
-                        mesh.vy[mesh.t3[i]],
-                        mesh.vz[mesh.t3[i]],
-                    ),
-                    LocateMode::InsideOrBoundary => point_in_tet_inclusive(
-                        px,
-                        py,
-                        pz,
-                        mesh.vx[mesh.t0[i]],
-                        mesh.vy[mesh.t0[i]],
-                        mesh.vz[mesh.t0[i]],
-                        mesh.vx[mesh.t1[i]],
-                        mesh.vy[mesh.t1[i]],
-                        mesh.vz[mesh.t1[i]],
-                        mesh.vx[mesh.t2[i]],
-                        mesh.vy[mesh.t2[i]],
-                        mesh.vz[mesh.t2[i]],
-                        mesh.vx[mesh.t3[i]],
-                        mesh.vy[mesh.t3[i]],
-                        mesh.vz[mesh.t3[i]],
-                    ),
-                };
-
-                if inside {
-                    return tid;
+                if point_in_tet_inclusive(
+                    px,
+                    py,
+                    pz,
+                    mesh.vx[mesh.t0[i]],
+                    mesh.vy[mesh.t0[i]],
+                    mesh.vz[mesh.t0[i]],
+                    mesh.vx[mesh.t1[i]],
+                    mesh.vy[mesh.t1[i]],
+                    mesh.vz[mesh.t1[i]],
+                    mesh.vx[mesh.t2[i]],
+                    mesh.vy[mesh.t2[i]],
+                    mesh.vz[mesh.t2[i]],
+                    mesh.vx[mesh.t3[i]],
+                    mesh.vy[mesh.t3[i]],
+                    mesh.vz[mesh.t3[i]],
+                ) {
+                    if hits < H {
+                        ids.push(tet);
+                        hits += 1;
+                    }
                 }
             } else {
-                // Internal BVH node
                 stack.push(self.left[n]);
                 stack.push(self.right[n]);
             }
         }
 
-        -1
-    }
-
-    #[inline(always)]
-    pub fn find_strict(&self, px: f64, py: f64, pz: f64, mesh: &TetMesh) -> i32 {
-        self.find(px, py, pz, mesh, LocateMode::StrictInside)
-    }
-
-    #[inline(always)]
-    pub fn find_inclusive(&self, px: f64, py: f64, pz: f64, mesh: &TetMesh) -> i32 {
-        self.find(px, py, pz, mesh, LocateMode::InsideOrBoundary)
+        (hits, ids)
     }
 
     #[cfg(feature = "gpu")]

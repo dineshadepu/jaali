@@ -97,6 +97,60 @@ pub fn generate_grid_mesh_2d(
     (vx, vy, t0, t1, t2)
 }
 
+pub fn grid_mesh_3d(
+    nx: usize,
+    ny: usize,
+    nz: usize,
+) -> (
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<usize>,
+    Vec<usize>,
+    Vec<usize>,
+    Vec<usize>,
+) {
+    let mut vx = Vec::new();
+    let mut vy = Vec::new();
+    let mut vz = Vec::new();
+
+    for k in 0..nz {
+        for j in 0..ny {
+            for i in 0..nx {
+                vx.push(i as f64);
+                vy.push(j as f64);
+                vz.push(k as f64);
+            }
+        }
+    }
+
+    let idx = |i, j, k| k * nx * ny + j * nx + i;
+
+    let mut t0 = Vec::new();
+    let mut t1 = Vec::new();
+    let mut t2 = Vec::new();
+    let mut t3 = Vec::new();
+
+    for k in 0..nz - 1 {
+        for j in 0..ny - 1 {
+            for i in 0..nx - 1 {
+                let v000 = idx(i, j, k);
+                let v100 = idx(i + 1, j, k);
+                let v010 = idx(i, j + 1, k);
+                let v001 = idx(i, j, k + 1);
+
+                // simple tetra split
+                t0.push(v000);
+                t1.push(v100);
+                t2.push(v010);
+                t3.push(v001);
+            }
+        }
+    }
+
+    (vx, vy, vz, t0, t1, t2, t3)
+}
+
 // ------------------------------------------------------------
 // Helpers for stress test
 // ------------------------------------------------------------

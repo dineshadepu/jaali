@@ -19,14 +19,15 @@ bool point_in_triangle_strict(
     double v0 = orient2d(px, py, bx, by, cx, cy);
     double v1 = orient2d(ax, ay, px, py, cx, cy);
     double v2 = orient2d(ax, ay, bx, by, px, py);
-    double v3 = orient2d(ax, ay, bx, by, cx, cy);
+    double area = orient2d(ax, ay, bx, by, cx, cy);
 
-    if (v3 > 0.0) {
+    if (area > 0.0) {
         return v0 > EPS && v1 > EPS && v2 > EPS;
     } else {
         return v0 < -EPS && v1 < -EPS && v2 < -EPS;
     }
 }
+
 
 extern "C" __device__ __forceinline__
 bool point_in_triangle_inclusive(
@@ -40,25 +41,28 @@ bool point_in_triangle_inclusive(
     double v0 = orient2d(px, py, bx, by, cx, cy);
     double v1 = orient2d(ax, ay, px, py, cx, cy);
     double v2 = orient2d(ax, ay, bx, by, px, py);
-    double v3 = orient2d(ax, ay, bx, by, cx, cy);
+    double area = orient2d(ax, ay, bx, by, cx, cy);
 
-    if (v3 > 0.0) {
-        return v0 >= -EPS && v1 >= -EPS && v2 >= -EPS;
+    double tol = EPS * (fabs(area) + 1.0);
+
+    if (area > 0.0) {
+        return v0 >= -tol && v1 >= -tol && v2 >= -tol;
     } else {
-        return v0 <= EPS && v1 <= EPS && v2 <= EPS;
+        return v0 <= tol && v1 <= tol && v2 <= tol;
     }
 }
 
 
+
 extern "C" __global__
-void locate_triangles(
+void locate_triangles_all(
     const double* qx,
     const double* qy,
-    int* out,
+    int* indices,
+    unsigned short* counts,
     int n_queries,
-    int mode,
+    int H,
 
-    // BVH
     const double* xmin,
     const double* ymin,
     const double* xmax,
@@ -67,18 +71,20 @@ void locate_triangles(
     const int* right,
     const int* tri,
 
-    // Mesh
     const double* vx,
     const double* vy,
     const int* t0,
     const int* t1,
     const int* t2
 ) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_queries) return;
+    int q = blockIdx.x * blockDim.x + threadIdx.x;
+    if (q >= n_queries) return;
 
-    double px = qx[i];
-    double py = qy[i];
+    double px = qx[q];
+    double py = qy[q];
+
+    int base = q * H;
+    int hit_count = 0;
 
     int stack[64];
     int sp = 0;
@@ -98,34 +104,22 @@ void locate_triangles(
             int i1 = t1[tid];
             int i2 = t2[tid];
 
-            bool inside;
+            if (point_in_triangle_inclusive(
+                    px, py,
+                    vx[i0], vy[i0],
+                    vx[i1], vy[i1],
+                    vx[i2], vy[i2])) {
 
-            if (mode == 0) {
-                inside = point_in_triangle_strict(
-                                        px, py,
-                                        vx[i0], vy[i0],
-                                        vx[i1], vy[i1],
-                                        vx[i2], vy[i2]
-                                        );
-            } else {
-                inside = point_in_triangle_inclusive(
-                                        px, py,
-                                        vx[i0], vy[i0],
-                                        vx[i1], vy[i1],
-                                        vx[i2], vy[i2]
-                                        );
+                if (hit_count < H) {
+                    indices[base + hit_count] = tid;
+                    hit_count++;
+                }
             }
-
-            if (inside) {
-               out[i] = tid;
-               return;
-            }
-
         } else {
             stack[sp++] = left[n];
             stack[sp++] = right[n];
         }
     }
 
-    out[i] = -1;
+    counts[q] = (unsigned short)hit_count;
 }
