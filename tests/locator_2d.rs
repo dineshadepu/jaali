@@ -17,7 +17,7 @@ fn locator2d_basic_inside_all_backends() {
 
     for backend in backends() {
         let mut out = vec![-1];
-        let mut locator = jaali::Locator2D::new_with_capacity(&mesh, qx.len(), 8)
+        let mut locator = jaali::Locator2D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
         locator.locate(&qx, &qy, &mut out);
@@ -42,7 +42,7 @@ fn locator2d_boundary_cases_all_backends() {
 
     for backend in backends() {
         // ---------- StrictInside ----------
-        let mut locator = Locator2D::new_with_capacity(&mesh, n, max_hits)
+        let mut locator = Locator2D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
@@ -95,7 +95,7 @@ fn locator2d_large_mesh_boundary_cases() {
     let H = 8;
 
     for backend in backends() {
-        let mut locator = Locator2D::new_with_capacity(&mesh, n, H)
+        let mut locator = Locator2D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
@@ -164,7 +164,7 @@ fn locator2d_center_shared_by_8_triangles() {
     let qy = vec![0.5];
 
     // Allow up to 8 hits
-    let mut locator = Locator2D::new_with_capacity(&mesh, 1, 8);
+    let mut locator = Locator2D::new(&mesh);
 
     locator.locate_all(&qx, &qy).unwrap();
 
