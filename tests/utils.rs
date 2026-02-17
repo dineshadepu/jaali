@@ -41,6 +41,13 @@ pub fn backends() -> Vec<jaali::Backend> {
     b
 }
 
+pub fn available_backends() -> Vec<jaali::Backend> {
+    let mut b = vec![jaali::Backend::Serial, jaali::Backend::ParallelCPU];
+    #[cfg(feature = "gpu")]
+    b.push(jaali::Backend::GPU);
+    b
+}
+
 // ------------------------------------------------------------
 // Helpers for stress test
 // ------------------------------------------------------------
@@ -471,5 +478,120 @@ pub fn make_star_tet_mesh(n: usize) -> TetMesh<'static> {
         t1: Box::leak(t1.into_boxed_slice()),
         t2: Box::leak(t2.into_boxed_slice()),
         t3: Box::leak(t3.into_boxed_slice()),
+    }
+}
+
+pub fn reference_locate_from_locate_all(
+    indices: &[i32],
+    counts: &[u16],
+    max_hits: usize,
+    q: usize,
+) -> i32 {
+    let c = counts[q] as usize;
+    if c == 0 {
+        return -1;
+    }
+
+    let base = q * max_hits;
+    let mut owner = indices[base];
+    for i in 1..c {
+        owner = owner.min(indices[base + i]);
+    }
+    owner
+}
+
+pub fn run_locate_3d(
+    mesh: &TetMesh,
+    backend: Backend,
+    qx: &[f64],
+    qy: &[f64],
+    qz: &[f64],
+) -> Vec<i32> {
+    let mut out = vec![-1; qx.len()];
+
+    let mut locator = Locator3D::new(mesh)
+        .with_backend(backend)
+        .expect("backend init failed");
+
+    locator.locate(qx, qy, qz, &mut out);
+    out
+}
+
+pub fn assert_locate_agrees_across_backends(mesh: &TetMesh, qx: &[f64], qy: &[f64], qz: &[f64]) {
+    let backends = available_backends();
+
+    let reference = run_locate_3d(mesh, backends[0], qx, qy, qz);
+
+    for &backend in &backends[1..] {
+        let out = run_locate_3d(mesh, backend, qx, qy, qz);
+        assert_eq!(
+            reference, out,
+            "locate mismatch between {:?} and {:?}",
+            backends[0], backend
+        );
+    }
+}
+
+pub fn reference_locate_2d_from_locate_all(
+    indices: &[i32],
+    counts: &[u16],
+    max_hits: usize,
+    q: usize,
+) -> i32 {
+    let c = counts[q] as usize;
+    if c == 0 {
+        return -1;
+    }
+
+    let base = q * max_hits;
+    let mut owner = indices[base];
+    for i in 1..c {
+        owner = owner.min(indices[base + i]);
+    }
+    owner
+}
+
+pub fn make_center_star_tri_mesh_2d() -> TriMesh<'static> {
+    use std::f64::consts::PI;
+
+    let n_tris = 8; // you can increase this if you want
+
+    // ------------------------
+    // Vertices
+    // ------------------------
+    let mut vx = Vec::with_capacity(n_tris + 1);
+    let mut vy = Vec::with_capacity(n_tris + 1);
+
+    // Center vertex (index 0)
+    vx.push(0.5);
+    vy.push(0.5);
+
+    // Ring vertices
+    let r = 0.4;
+    for i in 0..n_tris {
+        let theta = 2.0 * PI * (i as f64) / (n_tris as f64);
+        vx.push(0.5 + r * theta.cos());
+        vy.push(0.5 + r * theta.sin());
+    }
+
+    // ------------------------
+    // Triangles
+    // ------------------------
+    let mut t0 = Vec::with_capacity(n_tris);
+    let mut t1 = Vec::with_capacity(n_tris);
+    let mut t2 = Vec::with_capacity(n_tris);
+
+    for i in 0..n_tris {
+        t0.push(0); // center
+        t1.push(1 + i);
+        t2.push(1 + ((i + 1) % n_tris));
+    }
+
+    TriMesh {
+        vx: Box::leak(vx.into_boxed_slice()),
+        vy: Box::leak(vy.into_boxed_slice()),
+        t0: Box::leak(t0.into_boxed_slice()),
+        t1: Box::leak(t1.into_boxed_slice()),
+        t2: Box::leak(t2.into_boxed_slice()),
     }
 }

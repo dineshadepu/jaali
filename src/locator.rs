@@ -280,18 +280,45 @@ impl<'a> Locator2D<'a> {
     }
 
     pub fn locate(&mut self, qx: &[f64], qy: &[f64], out: &mut [i32]) {
-        assert_eq!(qx.len(), out.len());
+        self.locate_all(qx, qy).expect("locate_all failed");
 
-        self.locate_all(qx, qy).expect("JAALI locate failed");
+        assert_eq!(out.len(), qx.len());
 
-        for i in 0..qx.len() {
-            out[i] = if self.counts[i] > 0 {
-                self.indices[i * self.max_hits]
-            } else {
-                -1
-            };
+        let indices = &self.indices;
+        let counts = &self.counts;
+        let max_hits = self.max_hits;
+
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+
+            out.par_iter_mut().enumerate().for_each(|(q, out_q)| {
+                *out_q = select_owner_min_id(indices, counts, max_hits, q);
+            });
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            for q in 0..out.len() {
+                out[q] = select_owner_min_id(indices, counts, max_hits, q);
+            }
         }
     }
+}
+
+#[inline(always)]
+fn select_owner_min_id(indices: &[i32], counts: &[u16], max_hits: usize, q: usize) -> i32 {
+    let c = counts[q] as usize;
+    if c == 0 {
+        return -1;
+    }
+
+    let base = q * max_hits;
+    let mut owner = indices[base];
+    for i in 1..c {
+        owner = owner.min(indices[base + i]);
+    }
+    owner
 }
 
 /* ========================== 3D ========================== */
@@ -534,108 +561,28 @@ impl<'a> Locator3D<'a> {
     }
 
     pub fn locate(&mut self, qx: &[f64], qy: &[f64], qz: &[f64], out: &mut [i32]) {
-        assert_eq!(qx.len(), out.len());
+        self.locate_all(qx, qy, qz).expect("locate_all failed");
 
-        self.locate_all(qx, qy, qz).expect("JAALI locate failed");
+        assert_eq!(out.len(), qx.len());
 
-        for i in 0..qx.len() {
-            out[i] = if self.counts[i] > 0 {
-                self.indices[i * self.max_hits]
-            } else {
-                -1
-            };
+        let indices = &self.indices;
+        let counts = &self.counts;
+        let max_hits = self.max_hits;
+
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+
+            out.par_iter_mut().enumerate().for_each(|(q, out_q)| {
+                *out_q = select_owner_min_id(indices, counts, max_hits, q);
+            });
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            for q in 0..out.len() {
+                out[q] = select_owner_min_id(indices, counts, max_hits, q);
+            }
         }
     }
 }
-
-// #[cfg(test)]
-// mod stress_locator_2d {
-//     use super::*;
-//     use crate::test_bvh_2d::brute_force_find as brute_force_find_2d;
-//     use crate::test_bvh_2d::generate_points_2d;
-//     use crate::test_bvh_2d::read_vtk_2d;
-//     use std::time::Instant;
-
-//     #[test]
-//     #[ignore]
-//     fn stress_locator_vs_bruteforce_vtk_2d() {
-//         let vtk_path = "./test_data/field_2d.vtk";
-//         if !std::path::Path::new(vtk_path).exists() {
-//             eprintln!("VTK file not found, skipping stress test");
-//             return;
-//         }
-
-//         // ----------------------------
-//         // Load mesh
-//         // ----------------------------
-//         let (vx, vy, t0, t1, t2) = read_vtk_2d(vtk_path);
-
-//         let mesh = TriMesh {
-//             vx: &vx,
-//             vy: &vy,
-//             t0: &t0,
-//             t1: &t1,
-//             t2: &t2,
-//         };
-
-//         let n_queries = 100_000;
-//         let queries = generate_points_2d(n_queries, &vx, &vy);
-
-//         // ----------------------------
-//         // Brute-force reference
-//         // ----------------------------
-//         let t0 = Instant::now();
-//         let brute: Vec<i32> = queries
-//             .iter()
-//             .map(|&(x, y)| brute_force_find_2d(x, y, &mesh))
-//             .collect();
-//         let t_brute = t0.elapsed();
-
-//         // ----------------------------
-//         // Test all backends
-//         // ----------------------------
-//         let backends = vec![
-//             Backend::Serial,
-//             Backend::ParallelCPU,
-//             #[cfg(feature = "gpu")]
-//             Backend::GPU,
-//         ];
-
-//         for backend in backends {
-//             let locator = Locator2D::new(&mesh)
-//                 .with_backend(backend)
-//                 .expect("backend init failed");
-
-//             let mut out = vec![-99; n_queries];
-
-//             let t0 = Instant::now();
-//             let (qx, qy): (Vec<_>, Vec<_>) = queries.iter().cloned().unzip();
-//             locator.locate(&qx, &qy, &mut out);
-//             let t_loc = t0.elapsed();
-
-//             // ----------------------------
-//             // Correctness: inside / outside
-//             // ----------------------------
-//             let mismatches = out
-//                 .iter()
-//                 .zip(&brute)
-//                 .filter(|(a, b)| (**a >= 0) != (**b >= 0))
-//                 .count();
-
-//             assert_eq!(mismatches, 0, "Mismatch for backend {:?}", backend);
-
-//             println!(
-//                 "{:?}: {:.3} s ({:.2} M q/s)",
-//                 backend,
-//                 t_loc.as_secs_f64(),
-//                 n_queries as f64 / t_loc.as_secs_f64() / 1e6
-//             );
-//         }
-
-//         println!(
-//             "Brute force: {:.3} s ({:.2} M q/s)",
-//             t_brute.as_secs_f64(),
-//             n_queries as f64 / t_brute.as_secs_f64() / 1e6
-//         );
-//     }
-// }

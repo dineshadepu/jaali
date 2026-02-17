@@ -471,14 +471,17 @@ fn stress_2d_many_queries_tiny_mesh() {
     }
 }
 
+// =================================================
+// Testing the locate method
+// =================================================
 #[test]
-fn stress_2d_locate_vs_locate_all_consistency() {
+fn locate_2d_matches_locate_all_min_id() {
     let mesh = make_large_unstructured_tri_mesh_2d(20, 20);
 
     let qx = vec![3.3, 7.7, 15.5];
     let qy = vec![3.3, 7.7, 15.5];
 
-    for backend in backends() {
+    for backend in available_backends() {
         let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
 
         let mut out = vec![-1; qx.len()];
@@ -486,12 +489,124 @@ fn stress_2d_locate_vs_locate_all_consistency() {
 
         loc.locate_all(&qx, &qy).unwrap();
 
-        for i in 0..qx.len() {
-            if loc.counts[i] > 0 {
-                assert_eq!(out[i], loc.indices[i * loc.max_hits]);
-            } else {
-                assert_eq!(out[i], -1);
+        for q in 0..qx.len() {
+            let expected =
+                reference_locate_2d_from_locate_all(&loc.indices, &loc.counts, loc.max_hits, q);
+            assert_eq!(
+                out[q], expected,
+                "2D locate != min-id locate_all on backend {:?}",
+                backend
+            );
+        }
+    }
+}
+
+#[test]
+fn locate_2d_agrees_across_backends() {
+    let mesh = make_large_unstructured_tri_mesh_2d(30, 30);
+
+    let n = 20_000;
+    let qx = vec![12.3; n];
+    let qy = vec![9.7; n];
+
+    let mut ref_out = None;
+
+    for backend in available_backends() {
+        let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
+
+        let mut out = vec![-1; n];
+        loc.locate(&qx, &qy, &mut out);
+
+        if let Some(ref expected) = ref_out {
+            assert_eq!(
+                out, *expected,
+                "2D locate mismatch on backend {:?}",
+                backend
+            );
+        } else {
+            ref_out = Some(out);
+        }
+    }
+}
+
+#[test]
+fn locate_2d_idempotent_repeated_calls_same_locator_all_backends() {
+    use rand::Rng;
+
+    let mesh = make_large_unstructured_tri_mesh_2d(40, 40);
+    let mut rng = rand::thread_rng();
+
+    let n = 5000;
+
+    for backend in available_backends() {
+        let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
+
+        let qx: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..40.0)).collect();
+        let qy: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..40.0)).collect();
+
+        let mut ref_out = vec![-1; n];
+        loc.locate(&qx, &qy, &mut ref_out);
+
+        for _ in 0..10 {
+            let mut out = vec![-1; n];
+            loc.locate(&qx, &qy, &mut out);
+            assert_eq!(
+                ref_out, out,
+                "2D locate not idempotent on backend {:?}",
+                backend
+            );
+        }
+    }
+}
+
+#[test]
+fn locate_2d_variable_batch_sizes_same_locator_all_backends() {
+    let mesh = make_large_unstructured_tri_mesh_2d(25, 25);
+
+    for backend in available_backends() {
+        let mut loc = Locator2D::new(&mesh).with_backend(backend).unwrap();
+
+        for &n in &[1, 7, 64, 513, 4096, 128, 3] {
+            let qx = vec![5.5; n];
+            let qy = vec![5.5; n];
+
+            let mut out = vec![-1; n];
+            loc.locate(&qx, &qy, &mut out);
+
+            for &id in &out {
+                assert!(id >= -1);
             }
+        }
+    }
+}
+
+#[test]
+fn locate_2d_high_valence_vertex_min_id_all_backends() {
+    let mesh = make_center_star_tri_mesh_2d(); // center shared by many tris
+
+    let qx = vec![0.5];
+    let qy = vec![0.5];
+
+    let mut ref_out = None;
+
+    for backend in available_backends() {
+        let mut out = vec![-1];
+
+        Locator2D::new_with_capacity(&mesh, 1, 16)
+            .with_backend(backend)
+            .unwrap()
+            .locate(&qx, &qy, &mut out);
+
+        assert_eq!(out[0], 0, "wrong owner on backend {:?}", backend);
+
+        if let Some(ref expected) = ref_out {
+            assert_eq!(
+                out, *expected,
+                "2D backend {:?} disagrees with others",
+                backend
+            );
+        } else {
+            ref_out = Some(out);
         }
     }
 }

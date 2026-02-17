@@ -421,3 +421,135 @@ fn sanity_star_tet_mesh_counts() {
     loc.locate_all(&qx, &qy, &qz).unwrap();
     assert_eq!(loc.counts[0] as usize, n);
 }
+
+// =================================================
+// Testing the locate method
+// =================================================
+#[test]
+fn locate_matches_locate_all_min_id() {
+    let mesh = make_large_unstructured_tet_mesh();
+
+    let qx = vec![0.3, 0.6, 0.9];
+    let qy = vec![0.3, 0.6, 0.9];
+    let qz = vec![0.3, 0.6, 0.9];
+
+    for backend in available_backends() {
+        let mut locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
+
+        let mut out = vec![-1; qx.len()];
+        locator.locate(&qx, &qy, &qz, &mut out);
+
+        locator.locate_all(&qx, &qy, &qz).unwrap();
+
+        for q in 0..qx.len() {
+            let expected = reference_locate_from_locate_all(
+                &locator.indices,
+                &locator.counts,
+                locator.max_hits,
+                q,
+            );
+            assert_eq!(
+                out[q], expected,
+                "locate != min-id locate_all on backend {:?}",
+                backend
+            );
+        }
+    }
+}
+
+#[test]
+fn locate_agrees_across_backends() {
+    let mesh = make_large_unstructured_tet_mesh();
+
+    let n = 10_000;
+    let qx = vec![0.37; n];
+    let qy = vec![0.41; n];
+    let qz = vec![0.53; n];
+
+    assert_locate_agrees_across_backends(&mesh, &qx, &qy, &qz);
+}
+
+#[test]
+fn locate_idempotent_repeated_calls_same_locator_all_backends() {
+    use rand::Rng;
+
+    let mesh = make_large_unstructured_tet_mesh();
+    let mut rng = rand::thread_rng();
+
+    let n = 5000;
+
+    for backend in available_backends() {
+        let mut locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
+
+        let qx: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..1.0)).collect();
+        let qy: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..1.0)).collect();
+        let qz: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..1.0)).collect();
+
+        let mut ref_out = vec![-1; n];
+        locator.locate(&qx, &qy, &qz, &mut ref_out);
+
+        for _ in 0..10 {
+            let mut out = vec![-1; n];
+            locator.locate(&qx, &qy, &qz, &mut out);
+            assert_eq!(
+                ref_out, out,
+                "non-idempotent locate on backend {:?}",
+                backend
+            );
+        }
+    }
+}
+
+#[test]
+fn locate_variable_batch_sizes_same_locator_all_backends() {
+    let mesh = make_large_unstructured_tet_mesh();
+
+    for backend in available_backends() {
+        let mut locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
+
+        for &n in &[1, 7, 64, 513, 4096, 128, 3] {
+            let qx = vec![0.25; n];
+            let qy = vec![0.25; n];
+            let qz = vec![0.25; n];
+
+            let mut out = vec![-1; n];
+            locator.locate(&qx, &qy, &qz, &mut out);
+
+            for &id in &out {
+                assert!(id >= -1);
+            }
+        }
+    }
+}
+
+#[test]
+fn locate_high_valence_vertex_min_id_all_backends() {
+    let mesh = make_star_tet_mesh(32);
+
+    let qx = vec![0.0];
+    let qy = vec![0.0];
+    let qz = vec![0.0];
+
+    let mut ref_out = None;
+
+    for backend in available_backends() {
+        let mut out = vec![-1];
+
+        Locator3D::new_with_capacity(&mesh, 1, 64)
+            .with_backend(backend)
+            .unwrap()
+            .locate(&qx, &qy, &qz, &mut out);
+
+        assert_eq!(out[0], 0, "wrong owner on backend {:?}", backend);
+
+        if let Some(ref expected) = ref_out {
+            assert_eq!(
+                out, *expected,
+                "backend {:?} disagrees with others",
+                backend
+            );
+        } else {
+            ref_out = Some(out);
+        }
+    }
+}
