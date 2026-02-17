@@ -23,14 +23,6 @@ rayon = ["dep:rayon"]
 python = ["pyo3"]
 gpu = ["cudarc"]
 
-[[bench]]
-name = "bvh_2d"
-harness = false
-
-[[bench]]
-name = "bvh_3d"
-harness = false
-
 
 [[bench]]
 name = "locator_2d"

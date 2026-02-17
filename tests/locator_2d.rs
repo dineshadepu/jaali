@@ -4,7 +4,7 @@ use utils::{collect_hits_2d, make_large_unstructured_tri_mesh_2d};
 
 use std::collections::HashSet;
 
-use jaali::{Backend, LocateMode, Locator2D, TriMesh};
+use jaali::{Backend, Locator2D, TriMesh};
 
 // ------------------------------------------------------------
 // Basic correctness test (strictly inside)
@@ -25,6 +25,35 @@ fn locator2d_basic_inside_all_backends() {
             .expect("backend init failed");
         locator.locate(&qx, &qy, &mut out);
         assert_eq!(out[0], 0, "Locator2D failed for backend {:?}", backend);
+    }
+}
+
+// ------------------------------------------------------------
+// Outside-of-mesh correctness (2D)
+// ------------------------------------------------------------
+#[test]
+fn locator2d_basic_outside_all_backends() {
+    let mesh = single_triangle();
+
+    // Clearly outside
+    let qx = vec![1.5, -0.5, 0.5];
+    let qy = vec![1.5, 0.5, -0.5];
+
+    for backend in backends() {
+        let mut out = vec![-2; qx.len()]; // sentinel
+        let mut locator = jaali::Locator2D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
+
+        locator.locate(&qx, &qy, &mut out);
+
+        for (i, &id) in out.iter().enumerate() {
+            assert_eq!(
+                id, -1,
+                "Expected outside point to return -1 (backend {:?}, q={})",
+                backend, i
+            );
+        }
     }
 }
 

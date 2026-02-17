@@ -75,12 +75,27 @@ fn bench_locator_2d_small_mesh(c: &mut Criterion) {
     let qy: Vec<f64> = vec![0.3; qx.len()];
 
     for backend in available_backends() {
-        let locator = Locator2D::new(&mesh)
+        // ---------- locate_all ----------
+        let mut locator = Locator2D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
+
+        let name = format!("locator2d_small_locate_all_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate_all(&qx, &qy).unwrap();
+                std::hint::black_box(&locator.indices);
+            })
+        });
+
+        // ---------- locate ----------
+        let mut locator = Locator2D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
         let mut out = vec![-1; qx.len()];
-        let name = format!("locator2d_small_{:?}", backend);
+        let name = format!("locator2d_small_locate_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {
@@ -92,7 +107,6 @@ fn bench_locator_2d_small_mesh(c: &mut Criterion) {
 }
 
 fn bench_locator_2d_large_mesh(c: &mut Criterion) {
-    // ~180k triangles
     let (vx, vy, t0, t1, t2) = generate_grid_mesh_2d(300, 300);
 
     let mesh = TriMesh {
@@ -109,12 +123,27 @@ fn bench_locator_2d_large_mesh(c: &mut Criterion) {
         .collect();
 
     for backend in available_backends() {
-        let locator = Locator2D::new(&mesh)
+        // ---------- locate_all ----------
+        let mut locator = Locator2D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
+
+        let name = format!("locator2d_large_locate_all_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate_all(&qx, &qy).unwrap();
+                std::hint::black_box(&locator.indices);
+            })
+        });
+
+        // ---------- locate ----------
+        let mut locator = Locator2D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
         let mut out = vec![-1; qx.len()];
-        let name = format!("locator2d_large_{:?}", backend);
+        let name = format!("locator2d_large_locate_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {

@@ -24,12 +24,6 @@ pub enum Backend {
     GPU,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum LocateMode {
-    StrictInside,
-    InsideOrBoundary,
-}
-
 /* ========================== 2D ========================== */
 pub struct Locator2D<'a> {
     mesh: &'a TriMesh<'a>,

@@ -18,9 +18,6 @@ fn available_backends() -> Vec<&'static str> {
     v
 }
 
-/// ---------------------------------------------
-/// Backend parsing (shared by 2D and 3D)
-/// ---------------------------------------------
 fn parse_backend(backend: Option<&str>) -> PyResult<Backend> {
     match backend.unwrap_or("parallel") {
         "serial" => Ok(Backend::Serial),
@@ -32,8 +29,7 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Backend> {
         #[cfg(not(feature = "gpu"))]
         "gpu" => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "JAALI was built without GPU support. \
-                 Reinstall with GPU enabled, e.g. `pip install jaali[gpu]` \
-                 or build from source with `--features gpu`.",
+             Reinstall with GPU enabled or build from source with `--features gpu`.",
         )),
 
         other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
@@ -60,7 +56,6 @@ impl PyLocator2D {
         t2: Vec<usize>,
         backend: Option<&str>,
     ) -> PyResult<Self> {
-        // Leak memory intentionally – Python owns lifetime
         let vx = Box::leak(vx.into_boxed_slice());
         let vy = Box::leak(vy.into_boxed_slice());
         let t0 = Box::leak(t0.into_boxed_slice());
@@ -81,7 +76,7 @@ impl PyLocator2D {
     }
 
     fn locate<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         qx: PyReadonlyArray1<f64>,
         qy: PyReadonlyArray1<f64>,
@@ -89,7 +84,6 @@ impl PyLocator2D {
         let qx = qx.as_slice().map_err(|_| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>("qx must be a contiguous float64 array")
         })?;
-
         let qy = qy.as_slice().map_err(|_| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>("qy must be a contiguous float64 array")
         })?;
@@ -126,9 +120,6 @@ impl PyLocator3D {
         t3: Vec<usize>,
         backend: Option<&str>,
     ) -> PyResult<Self> {
-        // -------------------------------------------------
-        // Leak memory intentionally — Python owns lifetime
-        // -------------------------------------------------
         let vx = Box::leak(vx.into_boxed_slice());
         let vy = Box::leak(vy.into_boxed_slice());
         let vz = Box::leak(vz.into_boxed_slice());
@@ -160,7 +151,7 @@ impl PyLocator3D {
     }
 
     fn locate<'py>(
-        &self,
+        &mut self,
         py: Python<'py>,
         qx: PyReadonlyArray1<f64>,
         qy: PyReadonlyArray1<f64>,
@@ -169,11 +160,9 @@ impl PyLocator3D {
         let qx = qx.as_slice().map_err(|_| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>("qx must be a contiguous float64 array")
         })?;
-
         let qy = qy.as_slice().map_err(|_| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>("qy must be a contiguous float64 array")
         })?;
-
         let qz = qz.as_slice().map_err(|_| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>("qz must be a contiguous float64 array")
         })?;
@@ -195,7 +184,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLocator2D>()?;
     m.add_class::<PyLocator3D>()?;
 
-    // Register free functions
     m.add_function(wrap_pyfunction!(gpu_available, m)?)?;
     m.add_function(wrap_pyfunction!(available_backends, m)?)?;
 

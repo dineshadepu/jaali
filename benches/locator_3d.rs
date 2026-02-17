@@ -13,7 +13,6 @@ fn available_backends() -> Vec<Backend> {
     v
 }
 
-/// Simple tetrahedral grid generator
 fn generate_grid_mesh_3d(
     nx: usize,
     ny: usize,
@@ -57,7 +56,7 @@ fn generate_grid_mesh_3d(
                 let v001 = idx(i, j, k + 1);
                 let v111 = idx(i + 1, j + 1, k + 1);
 
-                // Simple tetra decomposition (not optimal but fine for benchmarks)
+                // two tets per cube (simple, consistent)
                 t0.push(v000);
                 t1.push(v100);
                 t2.push(v010);
@@ -75,7 +74,6 @@ fn generate_grid_mesh_3d(
 }
 
 fn bench_locator_3d_small_mesh(c: &mut Criterion) {
-    // Single tetrahedron
     let vx = vec![0.0, 1.0, 0.0, 0.0];
     let vy = vec![0.0, 0.0, 1.0, 0.0];
     let vz = vec![0.0, 0.0, 0.0, 1.0];
@@ -95,17 +93,32 @@ fn bench_locator_3d_small_mesh(c: &mut Criterion) {
         t3: &t3,
     };
 
-    let qx: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
-    let qy: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
-    let qz: Vec<f64> = (0..100_000).map(|_| 0.1).collect();
+    let qx: Vec<f64> = vec![0.1; 100_000];
+    let qy: Vec<f64> = vec![0.1; 100_000];
+    let qz: Vec<f64> = vec![0.1; 100_000];
 
     for backend in available_backends() {
-        let locator = Locator3D::new(&mesh)
+        // ---------- locate_all ----------
+        let mut locator = Locator3D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
+
+        let name = format!("locator3d_small_locate_all_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate_all(&qx, &qy, &qz).unwrap();
+                std::hint::black_box(&locator.indices);
+            })
+        });
+
+        // ---------- locate ----------
+        let mut locator = Locator3D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
         let mut out = vec![-1; qx.len()];
-        let name = format!("locator3d_small_{:?}", backend);
+        let name = format!("locator3d_small_locate_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {
@@ -117,7 +130,6 @@ fn bench_locator_3d_small_mesh(c: &mut Criterion) {
 }
 
 fn bench_locator_3d_large_mesh(c: &mut Criterion) {
-    // ~50k tetrahedra
     let (vx, vy, vz, t0, t1, t2, t3) = generate_grid_mesh_3d(40, 40, 40);
 
     let mesh = TetMesh {
@@ -136,12 +148,27 @@ fn bench_locator_3d_large_mesh(c: &mut Criterion) {
     let qz: Vec<f64> = (0..n).map(|i| ((i / 1600) % 40) as f64 + 0.3).collect();
 
     for backend in available_backends() {
-        let locator = Locator3D::new(&mesh)
+        // ---------- locate_all ----------
+        let mut locator = Locator3D::new(&mesh)
+            .with_backend(backend)
+            .expect("backend init failed");
+
+        let name = format!("locator3d_large_locate_all_{:?}", backend);
+
+        c.bench_function(&name, |b| {
+            b.iter(|| {
+                locator.locate_all(&qx, &qy, &qz).unwrap();
+                std::hint::black_box(&locator.indices);
+            })
+        });
+
+        // ---------- locate ----------
+        let mut locator = Locator3D::new(&mesh)
             .with_backend(backend)
             .expect("backend init failed");
 
         let mut out = vec![-1; qx.len()];
-        let name = format!("locator3d_large_{:?}", backend);
+        let name = format!("locator3d_large_locate_{:?}", backend);
 
         c.bench_function(&name, |b| {
             b.iter(|| {

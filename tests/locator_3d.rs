@@ -1,5 +1,5 @@
 mod utils;
-use jaali::{Backend, LocateMode, Locator3D, TetMesh};
+use jaali::{Backend, Locator3D, TetMesh};
 use rand::Rng;
 use utils::*;
 use utils::{
@@ -26,6 +26,34 @@ fn locator3d_basic_inside_all_backends() {
             .expect("backend init failed");
         locator.locate(&qx, &qy, &qz, &mut out);
         assert_eq!(out[0], 0, "Locator3D failed for backend {:?}", backend);
+    }
+}
+
+// ------------------------------------------------------------
+// Outside-of-mesh correctness (3D)
+// ------------------------------------------------------------
+#[test]
+fn locator3d_basic_outside_all_backends() {
+    let mesh = make_single_cube_5tet_mesh(); // or any simple tet mesh
+
+    // Clearly outside
+    let qx = vec![1.5, -0.5, 0.5];
+    let qy = vec![1.5, 0.5, -0.5];
+    let qz = vec![1.5, 0.5, 0.5];
+
+    for backend in available_backends() {
+        let mut out = vec![-2; qx.len()]; // sentinel
+        let mut locator = Locator3D::new(&mesh).with_backend(backend).unwrap();
+
+        locator.locate(&qx, &qy, &qz, &mut out);
+
+        for (i, &id) in out.iter().enumerate() {
+            assert_eq!(
+                id, -1,
+                "Expected outside point to return -1 (backend {:?}, q={})",
+                backend, i
+            );
+        }
     }
 }
 

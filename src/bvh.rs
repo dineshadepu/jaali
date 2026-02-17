@@ -1,7 +1,6 @@
 use crate::geometry::{point_in_tet, point_in_triangle};
 use crate::geometry::{point_in_tet_inclusive, point_in_triangle_inclusive};
 use crate::geometry::{point_in_tet_strict, point_in_triangle_strict};
-use crate::locator::LocateMode;
 use crate::mesh::{TetMesh, TriMesh};
 
 use crate::gpu::*;
