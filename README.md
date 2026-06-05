@@ -17,16 +17,35 @@
 
 ## Performance
 
-Criterion benchmarks on representative meshes (100 000 queries):
+Benchmarked on a mesh of **410,758 tetrahedra**.
 
-| Benchmark      | Purpose              |
-| -------------- | -------------------- |
-| 2D small mesh  | per-query overhead   |
-| 2D large mesh  | BVH scalability      |
-| 3D small mesh  | geometry cost        |
-| 3D large mesh  | real-world behavior  |
+### Single-point query
 
-Jaali achieves up to **15× speedup** over serial CPU execution and up to **4× speedup** over multi-core CPU baselines, while guaranteeing consistent ownership selection across all backends.
+| Method          | Time (ms) | Speedup vs. Brute Force |
+| --------------- | --------- | ----------------------- |
+| Brute Force     | 1710.48   | 1.00×                   |
+| Jaali Serial    | 0.0745    | 22,969×                 |
+| Jaali Parallel  | 0.0211    | 80,874×                 |
+| Jaali GPU       | 0.1315    | 13,003×                 |
+
+### Batch query (200,000 points)
+
+| Method          | Time (ms) | Speedup vs. Serial |
+| --------------- | --------- | ------------------ |
+| Jaali Serial    | 673.98    | 1.00×              |
+| Jaali Parallel  | 53.03     | 12.71×             |
+| Jaali GPU       | 15.26     | 44.18×             |
+
+The single-point speedups reflect BVH acceleration over a brute-force linear scan. The batch speedups show the benefit of parallelism — GPU reaches **44× over serial** at scale, while parallel CPU delivers **12.7×** with no GPU required.
+
+Criterion benchmark suite covers 2D and 3D meshes at small and large scales:
+
+| Benchmark      | Purpose             |
+| -------------- | ------------------- |
+| 2D small mesh  | per-query overhead  |
+| 2D large mesh  | BVH scalability     |
+| 3D small mesh  | geometry cost       |
+| 3D large mesh  | real-world behavior |
 
 ---
 
