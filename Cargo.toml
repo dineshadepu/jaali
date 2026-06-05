@@ -2,27 +2,32 @@
 name = "jaali"
 version = "0.1.0"
 edition = "2024"
+description = "Deterministic, GPU-accelerated point-in-cell locator for unstructured meshes"
+license = "BSD-3-Clause"
+repository = "https://github.com/dineshadepu/jaali"
+keywords = ["mesh", "gpu", "point-location", "simulation", "hpc"]
+categories = ["science", "algorithms"]
+readme = "README.md"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
 
-
 [dependencies]
-criterion = "0.8.2"
-rayon = { version = "1.11.0", optional = true }
-pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
-numpy = "0.28"
-cudarc = {version = "0.19.0",  features=["cuda-13010"], optional = true}
-rand = "0.8.0"
+rayon    = { version = "1.11.0", optional = true }
+pyo3     = { version = "0.28", features = ["extension-module"], optional = true }
+numpy    = { version = "0.28", optional = true }
+cudarc   = { version = "0.19.0", features = ["cuda-13010"], optional = true }
 smallvec = "1.15.1"
 
+[dev-dependencies]
+criterion = "0.8.2"
+rand      = "0.8.0"
 
 [features]
 default = ["rayon"]
-rayon = ["dep:rayon"]
-python = ["pyo3"]
-gpu = ["cudarc"]
-
+rayon   = ["dep:rayon"]
+python  = ["dep:pyo3", "dep:numpy"]
+gpu     = ["dep:cudarc"]
 
 [[bench]]
 name = "locator_2d"
